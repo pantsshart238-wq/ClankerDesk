@@ -301,6 +301,15 @@ html, body {
   backdrop-filter: blur(3px);
 }
 
+/* The download popup is a full-screen dashboard like Devices, not a little
+   centred card -- it reuses .dash-card, so it just needs the screen padding. */
+#downloadScreen {
+  padding: 24px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+@media (max-width: 560px) { #downloadScreen { padding: 12px; } }
+
 .login-card {
   width: min(340px, calc(100vw - 40px));
   background: #fff;
@@ -736,29 +745,46 @@ html, body {
 
 /* ---- download versions ---- */
 
+/* Version cards on the download page: the same glass as a device card, so the
+   two popups read as one design. */
 .ver-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 13px;
-  border: 1.5px solid var(--line);
-  border-radius: 10px;
-  background: #f8fafc;
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 16px;
+  background: rgba(150, 171, 194, .20);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  transition: background .25s ease, border-color .25s ease, box-shadow .25s ease;
 }
-.ver-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.ver-info .name { font-size: 13.5px; font-weight: 600; }
+.ver-row:hover {
+  background: var(--card-blue);
+  border-color: rgba(29, 58, 117, .18);
+  box-shadow: 0 12px 30px rgba(23, 44, 92, .18);
+}
+.ver-info { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ver-info .name {
+  font-size: 15px; font-weight: 800; color: #0b0f14;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .ver-chip {
   display: inline-block; width: max-content;
-  padding: 1px 8px; border-radius: 6px;
-  background: #EDF0FB; border: 1.5px solid #C9D2F6;
-  font: 700 10.5px var(--font); letter-spacing: .04em; color: #2f4a8f;
+  padding: 2px 9px; border-radius: 7px;
+  background: rgba(255, 255, 255, .55);
+  border: 1px solid rgba(255, 255, 255, .6);
+  font: 800 10.5px var(--font); letter-spacing: .05em; color: #0b0f14;
 }
-.ver-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+.ver-desc { font-size: 12.5px; font-weight: 600; color: rgba(11, 15, 20, .55); line-height: 1.45; }
 .ver-dl {
-  flex: 0 0 auto; padding: 7px 16px;
-  border-radius: 8px; background: #2f6fe4; color: #fff;
-  font: 600 12.5px var(--font); text-decoration: none;
-  transition: background .15s;
+  flex: 0 0 auto; padding: 10px 18px;
+  border: 1px solid transparent; border-radius: 11px;
+  background: #2f6fe4; color: #fff;
+  font: 700 12.5px var(--font); text-decoration: none;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
 }
-.ver-dl:hover { background: #245fce; }
+.ver-dl:hover { background: #245fce; transform: translateY(-1px); }
+.ver-dl:active { transform: scale(.97); }
 .ver-note { font-size: 11.5px; color: var(--muted); }
 
 /* =========================================================================

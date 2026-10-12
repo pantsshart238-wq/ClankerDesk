@@ -314,11 +314,15 @@
 <!-- ================= DOWNLOADS (versions) ================= -->
 <div id="downloadScreen" class="hidden">
   <div class="dash-card">
-    <button id="downXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
     <div class="dash-head">
-      <h1>Download ClankerDesk</h1>
+      <h1>Download</h1>
+      <span class="spacer"></span>
+      <button id="downCloseBtn" class="mini-btn" type="button">Exit</button>
+      <button id="downXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
     </div>
-    <p class="dash-sub">Pick a version — the file downloads straight to this PC. Unzip it, run <b>Setup.bat</b> (Full setup) or <b>Start-Agent.bat</b> (Portable).</p>
+    <div class="dash-bar">
+      <span class="dash-sub">Pick a version — the file downloads straight to this PC. Unzip it, run <b>Setup.bat</b> (Full setup) or <b>Start-Agent.bat</b> (Portable).</span>
+    </div>
     <div class="device-list">
       <div class="ver-row">
         <div class="ver-info">
@@ -336,10 +340,7 @@
         </div>
         <a class="ver-dl" href="/download/clankerdesk-v1.0-portable.zip" download>Download</a>
       </div>
-    </div>
-    <div class="dash-foot">
-      <span class="ver-note">New versions show up here automatically.</span>
-      <button id="downCloseBtn" type="button" class="link-btn">Close</button>
+      <div class="dash-empty">New versions show up here automatically.</div>
     </div>
   </div>
 </div>
