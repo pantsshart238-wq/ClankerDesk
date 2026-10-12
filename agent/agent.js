@@ -2438,6 +2438,23 @@ process.on("exit", killChildren);
 process.on("SIGHUP", () => { killChildren(); process.exit(0); });
 process.on("SIGTERM", () => { killChildren(); process.exit(0); });
 
+// A single thrown error anywhere (a relay callback, an audio event, a late
+// promise) used to take the WHOLE agent down: the console window would sit
+// there doing nothing and the stream would simply stop, with the only cure
+// being a manual restart. These handlers print what happened loudly -- so the
+// cause is finally visible instead of mysterious -- and keep serving, since
+// one bad callback should never end a working stream.
+process.on("uncaughtException", (err) => {
+  console.error("");
+  console.error("  [agent] something threw, but the agent is staying alive:");
+  console.error("  " + ((err && err.stack) || err));
+  console.error("");
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("  [agent] an async task failed, but the agent is staying alive:");
+  console.error("  " + ((reason && reason.stack) || reason));
+});
+
 try { startViewerServer(); } catch (e) { console.error("[viewer] failed to start:", e.message, "(streaming is unaffected)"); }
 
 // Startup order matters here. Account setup runs FIRST, while this console is
