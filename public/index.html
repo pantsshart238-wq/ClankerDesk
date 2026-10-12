@@ -259,17 +259,38 @@
     <div class="dash-head">
       <h1>Devices</h1>
       <span class="spacer"></span>
+      <button id="dashSelectAllBtn" class="mini-btn" type="button">Select All Devices</button>
       <button id="dashRefreshBtn" class="mini-btn" type="button">↻ Refresh</button>
+      <button id="dashManualBtn" class="mini-btn" type="button">Connect manually</button>
+      <button id="dashLogoutBtn" class="mini-btn" type="button">Log out</button>
+      <button id="dashCloseBtn" class="mini-btn" type="button">Exit</button>
       <button id="dashXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
     </div>
-    <p class="dash-sub" id="dashSub">Your ClankerDesk PCs. Click one, enter its PIN, and you're in.</p>
+    <div class="dash-bar">
+      <span id="dashSub" class="dash-sub">Your ClankerDesk PCs. Click one, enter its PIN, and you're in.</span>
+      <button id="dashConnectSelBtn" class="connect-sel" type="button" disabled>Connect to Selected</button>
+    </div>
     <div id="deviceList" class="device-list">
       <div class="dash-empty">Looking for devices…</div>
     </div>
-    <div class="dash-foot">
-      <button id="dashManualBtn" type="button" class="link-btn">Connect manually</button>
-      <button id="dashLogoutBtn" type="button" class="link-btn">Log out</button>
-      <button id="dashCloseBtn" type="button" class="link-btn">Exit</button>
+  </div>
+</div>
+
+<!-- ================= SYSTEM INFO ================= -->
+<div id="sysInfoScreen" class="hidden">
+  <div class="dash-card sysinfo-card">
+    <button id="sysInfoXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <div class="dash-head">
+      <h1>System Info</h1>
+    </div>
+    <div class="sysinfo-body">
+      <p class="sysinfo-name" id="sysInfoName">This PC</p>
+      <dl class="sysinfo-list" id="sysInfoList">
+        <div><dt>Operating system</dt><dd id="sysInfoOs">—</dd></div>
+        <div><dt>Processor</dt><dd id="sysInfoCpu">—</dd></div>
+        <div><dt>Memory</dt><dd id="sysInfoRam">—</dd></div>
+      </dl>
+      <p class="sysinfo-note" id="sysInfoNote">Connect to this PC once and its details will appear here.</p>
     </div>
   </div>
 </div>

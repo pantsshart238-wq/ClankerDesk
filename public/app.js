@@ -180,6 +180,8 @@ const keyTokenInput = document.getElementById("keyToken");
 const keyUserEl = document.getElementById("keyUser");
 const keyRelayEl = document.getElementById("keyRelay");
 const dashSub = document.getElementById("dashSub");
+const dashSelectAllBtn = document.getElementById("dashSelectAllBtn");
+const dashConnectSelBtn = document.getElementById("dashConnectSelBtn");
 const dashLogoutBtn = document.getElementById("dashLogoutBtn");
 
 let accountUser = null; // username while logged in, else null
@@ -474,6 +476,8 @@ setInterval(() => {
 let lastConnectUrl = null;
 let lastConnectToken = null;
 let authFailed = false;
+// Details the connected PC sends about itself, shown by System Info.
+let systemInfo = null;
 
 // ---- Audio ------------------------------------------------------------------
 // Fully independent of the video decoder above. Every audio step is wrapped in
@@ -962,6 +966,14 @@ function connect(url, token, isRetry) {
           showLogin(looksAddr
             ? `That's a server ADDRESS, not a token — it belongs in the top field. The token is the secret number (get it from the control panel's Copy button).`
             : `Token rejected — the page sent ${shown}. The saved token was cleared; check the field and click Connect.`);
+        } else if (m.type === "system_info" && m.info) {
+          // The agent telling us what this PC is, for the dashboard's
+          // System Info button. Remembered per PC so the button still has
+          // something to show before you have ever connected to it.
+          systemInfo = m.info;
+          if (m.info.id) {
+            try { localStorage.setItem("rdr_sysinfo_" + m.info.id, JSON.stringify(m.info)); } catch (_) {}
+          }
         }
       } catch (_) { /* not JSON: ignore */ }
       return;
@@ -1441,14 +1453,31 @@ async function loadDevices() {
     }
     const d = await r.json();
     const devices = (d && d.devices) || [];
+    currentDevices = devices; // kept so Select All can toggle by id
+    // Drop ticks for PCs that have since gone away, so "Connect to Selected"
+    // can never try to open a machine that no longer exists.
+    const liveIds = new Set(devices.map((x) => x.id));
+    for (const id of [...selectedDevices.keys()]) {
+      if (!liveIds.has(id)) selectedDevices.delete(id);
+    }
     if (!devices.length) {
       deviceList.innerHTML = '<div class="dash-empty">No PCs under this account yet. Run ClankerDesk on a PC and put this account\'s <b>private key</b> into its <b>config.json</b> (relayToken) — it shows up here right after a restart.</div>';
+      syncSelectUI();
       return;
     }
     deviceList.innerHTML = "";
     for (const dev of devices) {
       const row = document.createElement("div");
       row.className = "device-row " + (dev.online ? "online" : "offline");
+      // Tick box first, like the design: pick one, some, or all.
+      const sel = document.createElement("input");
+      sel.type = "checkbox";
+      sel.className = "sel-box";
+      sel.title = "Select this PC";
+      sel.disabled = !dev.online;
+      sel.checked = isSelected(dev);
+      sel.addEventListener("change", () => toggleSelect(dev, sel.checked));
+      row.appendChild(sel);
       const dot = document.createElement("span");
       dot.className = "dot";
       const name = document.createElement("span");
@@ -1459,9 +1488,16 @@ async function loadDevices() {
       seen.textContent = dev.online ? "online" : "last seen " + agoText(dev.lastSeen);
       row.append(dot, name, seen);
       if (dev.online) {
+        const sysBtn = document.createElement("button");
+        sysBtn.type = "button";
+        sysBtn.className = "sys-btn";
+        sysBtn.textContent = "System Info";
+        sysBtn.title = "What this PC is running";
+        sysBtn.addEventListener("click", () => showSystemInfo(dev));
+        row.appendChild(sysBtn);
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.textContent = "Connect";
+        btn.textContent = "Connect to Device";
         btn.addEventListener("click", () => openPin(dev));
         row.appendChild(btn);
         const floatBtn = document.createElement("button");
@@ -1481,7 +1517,92 @@ async function loadDevices() {
   } catch (e) {
     deviceList.innerHTML = '<div class="dash-empty err">Could not reach the relay.</div>';
   }
+  syncSelectUI();
 }
+
+// ---- Selecting devices ------------------------------------------------------
+// Tick one, some or all of the PCs, then connect. One window can decode one
+// stream, so a single selection connects here; several open in their own
+// Floating Windows (which already work, mic included) rather than pretending
+// one canvas can show them all.
+const selectedDevices = new Map(); // id -> device
+
+function isSelected(dev) { return selectedDevices.has(dev.id); }
+
+function toggleSelect(dev, on) {
+  if (on === undefined) on = !isSelected(dev);
+  if (on) selectedDevices.set(dev.id, dev);
+  else selectedDevices.delete(dev.id);
+  syncSelectUI();
+}
+
+function syncSelectUI() {
+  const rows = deviceList.querySelectorAll(".device-row");
+  rows.forEach((row) => {
+    const box = row.querySelector(".sel-box");
+    if (!box) return;
+    const on = box.checked;
+    row.classList.toggle("selected", on);
+  });
+  const n = selectedDevices.size;
+  if (typeof dashSelectAllBtn !== "undefined" && dashSelectAllBtn) {
+    const online = deviceList.querySelectorAll(".device-row.online").length;
+    dashSelectAllBtn.textContent = (online && n === online) ? "Clear Selection" : "Select All Devices";
+  }
+  if (typeof dashConnectSelBtn !== "undefined" && dashConnectSelBtn) {
+    dashConnectSelBtn.disabled = n === 0;
+    dashConnectSelBtn.textContent = n > 1 ? `Connect to ${n} Selected PCs` : "Connect to Selected";
+  }
+}
+
+function connectToSelected() {
+  const picks = [...selectedDevices.values()];
+  if (!picks.length) return;
+  if (picks.length === 1) { openPin(picks[0]); return; }
+  // Several at once: each PC gets its own window. Say so, because if the
+  // browser blocks pop-ups the user needs to know why only one opened.
+  let opened = 0;
+  let blocked = 0;
+  for (const dev of picks) {
+    openFloatingWindow(dev);
+    opened++;
+  }
+  closeDash();
+  if (opened > 1) {
+    showBanner(
+      blocked
+        ? `Your browser blocked some windows — allow pop-ups for this site to open all ${opened} PCs at once.`
+        : `Opening ${opened} PCs, one window each.`,
+      blocked ? "error" : "", 6
+    );
+  }
+}
+
+// ---- System info ------------------------------------------------------------
+function showSystemInfo(dev) {
+  // Live copy from this session first; otherwise the last one this browser was
+  // told about that PC (so the button is useful before you've connected).
+  let info = dev && dev.id ? null : null;
+  if (dev && dev.id) {
+    try { info = JSON.parse(localStorage.getItem("rdr_sysinfo_" + dev.id) || "null"); } catch (_) { info = null; }
+  }
+  const live = systemInfo && (!dev || !dev.id || !systemInfo.id || systemInfo.id === dev.id);
+  if (live) info = systemInfo;
+
+  document.getElementById("sysInfoName").textContent = (dev && dev.name) || "This PC";
+  document.getElementById("sysInfoOs").textContent = (info && info.os) || "—";
+  document.getElementById("sysInfoCpu").textContent = (info && info.cpu) || "—";
+  document.getElementById("sysInfoRam").textContent = (info && info.ram) || "—";
+  document.getElementById("sysInfoNote").textContent = info
+    ? (live ? "Sent live by this PC just now." : "Last reported by this PC.")
+    : "Connect to this PC once and its details will appear here.";
+  document.getElementById("sysInfoScreen").classList.remove("hidden");
+}
+
+function closeSystemInfo() {
+  document.getElementById("sysInfoScreen").classList.add("hidden");
+}
+document.getElementById("sysInfoXBtn").addEventListener("click", closeSystemInfo);
 
 function openDash() {
   // The dashboard replaces any card that might be behind it (account login,
@@ -1569,6 +1690,34 @@ document.getElementById("pinXBtn").addEventListener("click", closePin);
 document.getElementById("dashXBtn").addEventListener("click", closeDash);
 document.getElementById("dashCloseBtn").addEventListener("click", closeDash);
 document.getElementById("dashRefreshBtn").addEventListener("click", loadDevices);
+
+// "Select All Devices" flips between everything and nothing, so the same
+// button serves both: tick them all, or clear the lot.
+dashSelectAllBtn.addEventListener("click", () => {
+  const boxes = [...deviceList.querySelectorAll(".device-row.online .sel-box")];
+  if (!boxes.length) return;
+  const allOn = boxes.every((b) => b.checked);
+  boxes.forEach((b) => {
+    b.checked = !allOn;
+    const row = b.closest(".device-row");
+    const dev = currentDeviceFor(row);
+    if (dev) toggleSelect(dev, b.checked);
+  });
+  syncSelectUI();
+});
+
+dashConnectSelBtn.addEventListener("click", connectToSelected);
+
+// Remember which device each row is for, so the Select All button can toggle
+// by id without digging through the DOM.
+function currentDeviceFor(row) {
+  if (!row) return null;
+  const nameEl = row.querySelector(".name");
+  if (!nameEl) return null;
+  for (const d of currentDevices) if (d.name === nameEl.textContent) return d;
+  return null;
+}
+let currentDevices = [];
 document.getElementById("dashManualBtn").addEventListener("click", () => {
   closeDash();
   showLogin();

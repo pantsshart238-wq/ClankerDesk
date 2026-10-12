@@ -887,6 +887,53 @@ function tellRelayMicIsolated(on) {
   } catch (_) { /* relay not up: the next connect state settles it */ }
 }
 
+// ---- System info ------------------------------------------------------------
+// What the dashboard's "System Info" button shows about this PC. Gathered once
+// at startup (reading it per viewer would be wasteful) and sent only while
+// someone is watching. It is plain text, so the relay forwards it to viewers
+// exactly like the other status messages.
+const SYSTEM_INFO = (() => {
+  let osName = "Windows";
+  let release = "";
+  try {
+    // Windows reports its real build here ("10.0.22631"), which is far more
+    // useful than the generic "win32" that os.type() gives.
+    const rel = os.release();
+    if (/^\d+\.\d+\.\d+/.test(rel)) {
+      const parts = rel.split(".").map(Number);
+      const maj = parts[0], build = parts[2];
+      const names = { 10: "Windows 10/11", 6: "Windows Vista", 7: "Windows 7", 5: "Windows XP" };
+      osName = names[maj] || "Windows";
+      release = "build " + build;
+    }
+  } catch (e) { /* keep the default */ }
+  let cpu = "";
+  try {
+    const c = os.cpus();
+    if (c && c[0] && c[0].model) cpu = String(c[0].model).replace(/\s+/g, " ").trim();
+  } catch (e) { /* not available */ }
+  let ram = "";
+  try {
+    ram = Math.round(os.totalmem() / 1024 / 1024 / 1024) + " GB RAM";
+  } catch (e) { /* not available */ }
+  return {
+    id: DEVICE.deviceId,
+    name: DEVICE_NAME,
+    os: osName + (release ? " (" + release + ")" : ""),
+    cpu: cpu,
+    ram: ram,
+  };
+})();
+
+let lastSystemInfoAt = 0;
+function sendSystemInfo(force) {
+  if (!USE_RELAY || !ws || ws.readyState !== 1) return;
+  const now = Date.now();
+  if (!force && now - lastSystemInfoAt < 5000) return; // no need to spam
+  lastSystemInfoAt = now;
+  try { ws.send(JSON.stringify({ type: "system_info", info: SYSTEM_INFO })); } catch (_) {}
+}
+
 // ffplay renders through SDL, which only ever opens the Windows DEFAULT
 // playback device -- there is no "pick a device" flag. So for the two-cable
 // setup we BORROW the default for a moment: audio-helper.ps1 switches it to
@@ -2222,7 +2269,7 @@ function tokensMatch(given) {
 // One place that understands everything a viewer can say (used by relay + direct viewers).
 function handleViewerEvent(event) {
   markViewerActive();
-  if (event.type === "viewer_ping") { if (event.audio) enableAudio(); return; }
+  if (event.type === "viewer_ping") { if (event.audio) enableAudio(); sendSystemInfo(); return; }
   if (event.type === "audio_enable") { enableAudio(); return; }
   // The relay tags every viewer event with a stable per-socket `vid` and sends
   // {type:"viewer_gone", vid} when a viewer drops, so we can keep the sound
@@ -2248,9 +2295,11 @@ function handleViewerEvent(event) {
 function needFreshKeyframe() {
   if (captureWanted) {
     lastViewerSeenAt = Date.now();
+    sendSystemInfo(true); // a viewer just arrived: send details right away
     try { currentFfmpeg.kill("SIGKILL"); } catch (_) {} // the exit handler relaunches it (captureWanted stays true)
   } else {
     markViewerActive();
+    sendSystemInfo(true);
   }
 }
 
