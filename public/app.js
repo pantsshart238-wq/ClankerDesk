@@ -1366,8 +1366,14 @@ loginOpenBtn.addEventListener("click", () => {
   setStatus("", false);
   closeInfo();
   closeDownloads();
-  if (window.AGENT_RELAY_URL && !window.AGENT_DIRECT) {
-    // Relay page: the dashboard is PRIVATE -- it needs a logged-in account.
+  // Is the account API reachable from THIS origin?
+  //   - the permanent Worker page: it is the same origin, so always yes
+  //   - a page served by the agent (localhost or the quick-tunnel link): the
+  //     agent forwards /api/* to the Worker, so also yes (CD_HAS_ACCOUNT_API)
+  //   - an agent with no relay configured: no, so fall through to direct
+  const accountApiHere = !!window.CD_HAS_ACCOUNT_API || (!!window.AGENT_RELAY_URL && !window.AGENT_DIRECT);
+  if (accountApiHere) {
+    // The dashboard is PRIVATE -- it needs a logged-in account.
     if (accountUser) openDash();
     else openAccLogin();
   } else {
@@ -1434,13 +1440,13 @@ function agoText(ts) {
 }
 
 async function loadDevices() {
-  const origin = relayOrigin();
-  if (!origin) {
-    deviceList.innerHTML = '<div class="dash-empty err">The device list needs the Cloudflare relay page — open this site from its permanent link.</div>';
-    return;
-  }
+  // Same-origin, always. On the permanent Worker page that is the Worker. On a
+  // page served by the agent (localhost or the quick-tunnel link) the agent
+  // forwards /api/* to the Worker, so a relative URL is still correct -- and
+  // going absolute would break the session cookie, which is only ever sent
+  // same-origin.
   try {
-    const r = await fetch(origin + "/api/devices", { cache: "no-store" });
+    const r = await fetch("/api/devices", { cache: "no-store" });
     if (r.status === 401) {
       // Not logged in (or the session expired): the device list is private.
       closeDash();
@@ -1448,7 +1454,7 @@ async function loadDevices() {
       return;
     }
     if (!r.ok) {
-      deviceList.innerHTML = '<div class="dash-empty err">This page is not the permanent link — open <b>https://clankerdesk.remote-me-braeden.workers.dev</b> for the device list.</div>';
+      deviceList.innerHTML = '<div class="dash-empty err">Could not reach the relay from this page. Open <b>https://clankerdesk.remote-me-braeden.workers.dev</b> for the device list.</div>';
       return;
     }
     const d = await r.json();
@@ -1843,7 +1849,10 @@ infoBtn.addEventListener("click", async () => {
   infoScreen.classList.remove("hidden");
 
   // Permanent relay link (on the relay page it is simply this page's home).
-  const origin = relayOrigin();
+  // CD_RELAY_ORIGIN comes from the agent, which knows the real permanent
+  // address -- relayOrigin() alone would report the temporary tunnel address
+  // as if it were permanent, and that link stops working when the agent does.
+  const origin = window.CD_RELAY_ORIGIN || relayOrigin();
   if (origin) {
     relayLinkEl.href = origin;
     relayLinkEl.textContent = origin;

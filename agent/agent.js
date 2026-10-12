@@ -15,6 +15,7 @@ const { spawn } = require("child_process");
 const { PassThrough } = require("stream");
 const path = require("path");
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
@@ -2027,6 +2028,20 @@ function renderViewerHtml(raw, local) {
       `<script>window.CD_DEPLOY_REPO=${JSON.stringify(DEPLOY_REPO)};</script>\n`);
   }
 
+  // Not secrets, so these go to every visitor (not just this PC's own browser):
+  //   CD_HAS_ACCOUNT_API -- sign up / log in / Devices work from this origin,
+  //     because the agent forwards /api/* to the Worker. Without it the Login
+  //     button routed to the direct-connect card instead, so logging in on a
+  //     trycloudflare link appeared to do nothing.
+  //   CD_RELAY_ORIGIN -- the PERMANENT address of the relay. The Info panel
+  //     needs it because relayOrigin() would otherwise report the temporary
+  //     tunnel address as though it were permanent.
+  if (API_ORIGIN) {
+    html = injectBeforeLast(html, "</head>",
+      `<script>window.CD_HAS_ACCOUNT_API = true;` +
+      `window.CD_RELAY_ORIGIN = ${JSON.stringify(API_ORIGIN)};</script>\n`);
+  }
+
   // Pre-fill the relay address (NOT the token). Falls back to the page as-is.
   if (RELAY_URL.startsWith("wss://") && !RELAY_URL.includes("your-worker")) {
     html = injectAttrIntoTag(html, '<input id="relayUrl"', 'id="relayUrl"',
@@ -2048,6 +2063,95 @@ function renderViewerHtml(raw, local) {
     }
   }
   return html;
+}
+
+// Where the account API lives: the same host as the relay. wss:// -> https://,
+// minus the /ws suffix.
+const API_ORIGIN = (() => {
+  try {
+    if (!USE_RELAY) return null;
+    if (!RELAY_URL.startsWith("wss://") || RELAY_URL.includes("your-worker")) return null;
+    return RELAY_URL.replace(/^wss:/, "https:").replace(/\/ws\/?$/, "").replace(/\/+$/, "");
+  } catch (_) {
+    return null;
+  }
+})();
+
+// Forward one account-API call to the Worker.
+//
+// WHY A PROXY INSTEAD OF CORS: the page on a quick-tunnel link is served from
+// https://<random>.trycloudflare.com, so its relative fetch("/api/login") hits
+// the AGENT, which used to answer 404 -- logging in simply did nothing there.
+// The obvious alternative is to let the browser call the Worker cross-origin,
+// but the tunnel's hostname is random and cannot be allowlisted, so the Worker
+// would have to echo Access-Control-Allow-Origin: * together with
+// Allow-Credentials and a SameSite=None cookie. That would let ANY website
+// read /api/me and /api/devices with a logged-in visitor's cookie. Not worth
+// it.
+//
+// Proxying keeps the tunnel origin as the origin, so it stays same-origin:
+// no CORS headers, and the existing SameSite=Lax cookie works untouched. The
+// target is fixed at startup from RELAY_URL and is never taken from the
+// request, so this cannot be pointed anywhere else.
+function proxyAccountApi(req, res, urlPath) {
+  if (!API_ORIGIN) {
+    res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(JSON.stringify({ error: "This PC has no Cloudflare relay configured, so there is no account to log in to." }));
+    return;
+  }
+  const target = new URL(API_ORIGIN + urlPath);
+  const chunks = [];
+  let size = 0;
+  const LIMIT = 256 * 1024;
+  let tooBig = false;
+
+  req.on("data", (c) => {
+    size += c.length;
+    if (size > LIMIT) { tooBig = true; req.destroy(); return; }
+    chunks.push(c);
+  });
+
+  req.on("end", () => {
+    if (tooBig) {
+      try { res.writeHead(413); res.end(); } catch (_) {}
+      return;
+    }
+    const headers = { "Accept": req.headers.accept || "application/json" };
+    if (req.headers["content-type"]) headers["Content-Type"] = req.headers["content-type"];
+    // The caller's session cookie must travel upstream or the Worker sees an
+    // anonymous request and the device list comes back 401.
+    if (req.headers.cookie) headers.Cookie = req.headers.cookie;
+    if (req.headers["x-cd-relay-token"]) headers["X-CD-Relay-Token"] = req.headers["x-cd-relay-token"];
+
+    const upstream = https.request({
+      protocol: target.protocol,
+      hostname: target.hostname,
+      port: target.port || 443,
+      path: target.pathname + target.search,
+      method: req.method,
+      headers,
+      timeout: 20000,
+    }, (up) => {
+      const outHeaders = {
+        "Content-Type": up.headers["content-type"] || "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      };
+      // Set-Cookie has to come back or the login never sticks on this origin.
+      const setCookie = up.headers["set-cookie"];
+      if (setCookie) outHeaders["Set-Cookie"] = setCookie;
+      res.writeHead(up.statusCode || 502, outHeaders);
+      up.pipe(res);
+    });
+    upstream.on("timeout", () => upstream.destroy(new Error("upstream timeout")));
+    upstream.on("error", (e) => {
+      console.error("[api-proxy] " + urlPath + " failed: " + e.message);
+      try {
+        if (!res.headersSent) res.writeHead(502, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ error: "Could not reach the ClankerDesk relay." }));
+      } catch (_) { try { res.destroy(); } catch (__) {} }
+    });
+    upstream.end(chunks.length ? Buffer.concat(chunks) : undefined);
+  });
 }
 
 function lanAddresses() {
@@ -2081,6 +2185,15 @@ function startViewerServer() {
         // Let the response flush first; the "exit" handler then kills ffmpeg,
         // the input helper and the tunnel before the process really quits.
         setTimeout(() => { try { process.exit(0); } catch (_) {} }, 250);
+        return;
+      }
+      // The account API (sign up / log in / my devices). These live on the
+      // Cloudflare Worker, so when this page is reached through the quick-
+      // tunnel the relative fetch would land here instead and 404 -- which is
+      // why logging in did nothing on a trycloudflare link. Forwarded rather
+      // than opened up with CORS; see proxyAccountApi for why.
+      if (urlPath.startsWith("/api/")) {
+        proxyAccountApi(req, res, urlPath);
         return;
       }
       if (req.method !== "GET" && req.method !== "HEAD") {
