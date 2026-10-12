@@ -1,0 +1,16 @@
+# Secrets for "Deploy to Cloudflare".
+#
+# Cloudflare reads this file during a button deploy and asks the person
+# deploying to fill in each value. Their answers become encrypted Worker
+# secrets -- never visible in the repo, never printed in logs.
+#
+# Generate your own random value for ACCOUNT_SECRET (do NOT reuse the sample
+# below -- it is public, and anyone who knows it can forge a login cookie for
+# any account on your instance):
+#
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#
+# Leaving this blank is fine: ClankerDesk streams, but Sign up / Log in stay
+# switched off until a value is set.
+
+ACCOUNT_SECRET=replace-with-your-own-random-hex-string

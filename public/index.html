@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ClankerDesk</title>
+<link rel="icon" href="favicon.png" type="image/png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#0d1420" />
+<script>
+  // Capture Chrome's install prompt the INSTANT it is offered. Chrome fires
+  // beforeinstallprompt at most once per page load, often before app.js has
+  // finished loading -- missing that one shot is why "Install App" used to
+  // answer with instructions instead of the install dialog. app.js reads
+  // window.__cdInstall (and listens too, for prompts that arrive later).
+  window.__cdInstall = null;
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    window.__cdInstall = e;
+  });
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+<!--
+  Layout & content live here. All styling in theme.css (edit that file to
+  redesign). All behavior in app.js.
+
+  If you redesign this page, keep these element ids (app.js needs them):
+    landing, navbar, loginOpenBtn, devicesBtn, downloadBtn, installBtn, floatingWindowBtn, connStatus, infoBtn,
+    infoScreen, infoCloseBtn, infoXBtn, publicLinkRow, publicLink, relayLinkRow,
+    relayLink, deviceRow, deviceName, devicePin, pinCopyBtn, downloadLink,
+    downloadScreen, downXBtn, downCloseBtn,
+    dashScreen, dashXBtn, dashRefreshBtn, dashCloseBtn, dashManualBtn,
+    dashLogoutBtn, dashSub, deviceList,
+    pinScreen, pinXBtn, pinForm, pinInput, pinError, pinTitle, pinBackBtn, pinConnectBtn,
+    loginScreen, loginOpenBtn, accUser, accPass, accSubmit, accError, accHint,
+    accToSignupBtn, accDirectBtn,
+    signupScreen, signXBtn, signUser, signPass, signPass2, signSubmit, signError,
+    signBackBtn,
+    keyScreen, keyXBtn, keyToken, keyCopyBtn, keyRelay, keyDoneBtn,
+    directScreen, directCloseBtn, directBackBtn, loginForm, relayUrl, token,
+    connectBtn, loginError, loginStatus, loginBadge,
+    viewerScreen, wrap, topbar, hud, topbarButtons,
+    soundBtn, micBtn, settingsBtn, fullscreenBtn, restartCaptureBtn, qualityBtn,
+    qualityMenu, disconnectBtn, screen,
+    featuresToggle, featuresBody
+
+  Also keep the stylesheet link, the app.js script tag, and the page's final
+  head-closing tag at its real position (the agent injects a small script
+  right before it -- never write that tag inside comments or strings).
+-->
+<link rel="stylesheet" href="theme.css" />
+</head>
+<body>
+
+<!-- ================= LANDING ================= -->
+<div id="landing">
+
+  <!-- semi-transparent glass bar: brand + connection status + Login + Info -->
+  <nav class="navbar">
+    <span class="brand">ClankerDesk</span>
+    <div id="connStatus"></div>
+    <div class="nav-actions">
+      <button id="devicesBtn" class="nav-btn" type="button">Devices</button>
+      <button id="downloadBtn" class="nav-btn" type="button">Download</button>
+      <button id="installBtn" class="nav-btn" type="button">Install App</button>
+      <button id="floatingWindowBtn" class="nav-btn" type="button">Floating Window</button>
+      <button id="loginOpenBtn" class="nav-btn primary" type="button">Login</button>
+      <button id="infoBtn" class="nav-btn" type="button">Info</button>
+    </div>
+  </nav>
+
+  <header class="top">
+    <h1 class="headline">Welcome, Control your big machine<br />from your pitiful one with ease.</h1>
+  </header>
+
+  <section class="hero-art" aria-hidden="true">
+    <!-- monitor -->
+    <svg class="art art-monitor" viewBox="0 0 160 160" role="img">
+      <rect x="4" y="4" width="152" height="152" rx="36" fill="#B0AFE0" />
+      <rect x="36" y="40" width="88" height="58" rx="12" fill="#FFFFFF" stroke="#000000" stroke-width="7" />
+      <path d="M80 98 v22" stroke="#000000" stroke-width="7" stroke-linecap="round" />
+      <path d="M55 126 h50" stroke="#000000" stroke-width="7" stroke-linecap="round" />
+      <path d="M64 112 h32" stroke="#000000" stroke-width="7" stroke-linecap="round" />
+    </svg>
+
+    <!-- arrow -->
+    <svg class="art art-arrow" viewBox="0 0 220 48" role="img">
+      <path d="M10 24 H182" stroke="#000000" stroke-width="8" stroke-linecap="round" />
+      <path d="M176 8 L208 24 L176 40 Z" fill="#000000" />
+    </svg>
+
+    <!-- laptop -->
+    <svg class="art art-laptop" viewBox="0 0 160 160" role="img">
+      <rect x="4" y="4" width="152" height="152" rx="36" fill="#8793DD" />
+      <rect x="40" y="42" width="80" height="56" rx="6" fill="#BBCC78" stroke="#000000" stroke-width="7" />
+      <path d="M30 110 h100 l10 18 H20 Z" fill="#3B4549" stroke="#000000" stroke-width="6" stroke-linejoin="round" />
+    </svg>
+  </section>
+
+  <section class="features">
+    <button id="featuresToggle" class="features-toggle" type="button" aria-expanded="true" aria-controls="featuresBody">
+      Features… <span class="chev" aria-hidden="true"></span>
+    </button>
+    <div id="featuresBody" class="feature-card">
+      <p class="f-title">60 FPS, and 1080P Streaming</p>
+      <p class="f-body">TCP connection/Websocket streaming, so you can connect even in strict networks.</p>
+      <p class="f-title">Mic Streaming</p>
+      <p class="f-body">Low latency mic streaming, talk through the client mic and the host picks it up. So you can still play with your bros or whatever with mic.</p>
+      <p class="f-title">Complete Plug n' Play</p>
+      <p class="f-body">Simply download the agent, let it install all the packages, then press start.</p>
+      <p class="f-title">Completely Editable</p>
+      <p class="f-body">It's all plain code. Open any file in Notepad, change whatever you want, and make it work exactly how you want it to.</p>
+      <p class="f-title">Web Proxy Support</p>
+      <p class="f-body">Supports web proxies and link embedders, so if it's blocked wherever you are, you can easily get through in strict conditions.</p>
+    </div>
+  </section>
+
+  <!-- Self-host card. Stays hidden until this Worker is configured with a
+       DEPLOY_REPO_URL, so nobody ever sees a button that goes nowhere. -->
+  <section id="selfHostCard" class="feature-card self-host" hidden>
+    <p class="f-title">Run your own relay</p>
+    <p class="f-body">Don't want to share this one? Deploy your own copy in a couple of clicks — it runs on your own Cloudflare account, so your accounts, your PCs and your free-tier allowance stay entirely yours.</p>
+    <p class="f-body self-host-steps"><b>1.</b> Click below and sign in to Cloudflare (or make a free account). &nbsp;<b>2.</b> Paste any random string for <code>ACCOUNT_SECRET</code> — generate one with <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code>. &nbsp;<b>3.</b> Deploy. Then set <code>"relayUrl"</code> in your <code>config.json</code> to <code>wss://YOUR-NAME.workers.dev/ws</code>.</p>
+    <p class="f-body"><a id="selfHostBtn" class="nav-btn primary" href="#" target="_blank" rel="noopener">Deploy your own with Cloudflare</a></p>
+  </section>
+
+  <footer class="foot">ClankerDesk</footer>
+</div>
+
+<!-- ================= LOGIN (account, modal) ================= -->
+<div id="loginScreen" class="hidden">
+  <div class="login-card">
+    <button id="loginCloseBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1>Log in</h1>
+    <p class="acc-hint" id="accHint">Your account shows only <b>your</b> PCs — nobody else's.</p>
+
+    <form id="accForm" autocomplete="on">
+      <label for="accUser">Username</label>
+      <input id="accUser" type="text" placeholder="username" spellcheck="false" autocapitalize="none" autocomplete="username" />
+
+      <label for="accPass">Password</label>
+      <input id="accPass" type="password" placeholder="password" autocomplete="current-password" />
+
+      <div id="accError"></div>
+      <button id="accSubmit" type="submit">Log in</button>
+    </form>
+
+    <div class="acc-alt">
+      <button id="accToSignupBtn" type="button" class="link-btn">New here? <b>Sign up</b></button>
+      <button id="accDirectBtn" type="button" class="link-btn">Direct connection (wss URL + token)</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= SIGN UP (modal) ================= -->
+<div id="signupScreen" class="hidden">
+  <div class="login-card">
+    <button id="signXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1>Sign up</h1>
+    <p class="acc-hint">Free. Your account keeps your PCs private — only your login sees them. After signing up you get a <b>private key</b> that links each of your PCs to your account.</p>
+
+    <form id="signForm" autocomplete="on">
+      <label for="signUser">Username</label>
+      <input id="signUser" type="text" placeholder="username" spellcheck="false" autocapitalize="none" autocomplete="username" />
+
+      <label for="signPass">Password</label>
+      <input id="signPass" type="password" placeholder="at least 8 characters" autocomplete="new-password" />
+
+      <label for="signPass2">Repeat password</label>
+      <input id="signPass2" type="password" placeholder="type it again" autocomplete="new-password" />
+
+      <div id="signError"></div>
+      <button id="signSubmit" type="submit">Create account</button>
+    </form>
+
+    <div class="acc-alt">
+      <button id="signBackBtn" type="button" class="link-btn">Already have an account? <b>Log in</b></button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ACCOUNT KEY (modal) ================= -->
+<div id="keyScreen" class="hidden">
+  <div class="login-card">
+    <button id="keyXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1>Your private key</h1>
+    <p class="acc-hint">This key links your PCs to <b id="keyUser"></b>. It's shown once here — copy it now (you can see it again any time after logging in).</p>
+
+    <label for="keyToken">Private key</label>
+    <input id="keyToken" type="text" readonly spellcheck="false" class="key-token" />
+
+    <p class="acc-hint">Put it into that PC's <b>config.json</b>: set <b>relayToken</b> to this key and <b>relayUrl</b> to:</p>
+    <p class="key-relay"><code id="keyRelay"></code></p>
+    <p class="acc-hint">Then restart ClankerDesk on that PC — it appears under your account in <b>Devices</b>.</p>
+
+    <div class="key-row">
+      <button id="keyCopyBtn" type="button" class="mini-btn">copy key</button>
+      <button id="keyDoneBtn" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= DIRECT CONNECT (wss URL + token, modal) ================= -->
+<div id="directScreen" class="hidden">
+  <div class="login-card">
+    <button id="directCloseBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1>ClankerDesk</h1>
+
+    <form id="loginForm" autocomplete="off">
+      <label for="relayUrl">WSS URL</label>
+      <input id="relayUrl" type="text" placeholder="wss://your-link/ws" spellcheck="false" />
+
+      <label for="token">Token</label>
+      <input id="token" type="password" placeholder="paste token" />
+
+      <div id="loginError"></div>
+      <button id="connectBtn" type="submit">Connect</button>
+      <div id="loginStatus"></div>
+      <div id="loginBadge" class="login-badge"></div>
+    </form>
+
+    <div class="acc-alt">
+      <button id="directBackBtn" type="button" class="link-btn">Back to <b>login</b></button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= INFO / INSTRUCTIONS (modal) ================= -->
+<div id="infoScreen" class="hidden">
+  <div class="login-card info-card">
+    <button id="infoXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1>ClankerDesk — how to use</h1>
+    <div class="info-body">
+      <p id="deviceRow" class="hidden"><b>This PC:</b> <b id="deviceName"></b> — appears in the <b>Devices</b> dashboard. Friends connect with PIN <b id="devicePin" class="pin-chip"></b> <button id="pinCopyBtn" type="button" class="mini-btn">copy</button></p>
+      <p><b>Accounts:</b> the dashboard is private — each account sees only its own PCs. Click <b>Sign up</b> (free), copy your <b>private key</b>, put it into that PC's <b>config.json</b> as <b>relayToken</b>, restart ClankerDesk. The PC now belongs to your account.</p>
+      <p><b>From another device:</b> log in (or use a shared link with <code>?device=…</code>), pick a PC, enter its PIN. The PIN is shown in that PC's ClankerDesk window (or its Info page).</p>
+      <p id="relayLinkRow" class="hidden"><b>Permanent link (share this):</b><br /><a id="relayLink" href="#" target="_blank" rel="noopener"></a></p>
+      <p id="publicLinkRow"><b>Temporary tunnel link:</b><br /><a id="publicLink" href="#" target="_blank" rel="noopener"></a></p>
+      <p id="downloadRow"><b>Get ClankerDesk for another PC:</b><br /><a id="downloadLink" href="/download/clankerdesk.zip">download the setup bundle</a> — unzip, run <b>Setup.bat</b> once, then <b>Start-Agent.bat</b>. Sign up if you don't have an account yet, paste your key into its config.json, and it shows up in <b>your</b> dashboard.</p>
+      <p><b>Sound:</b> viewers hear whatever this PC plays — games, music, calls — automatically. Nothing to install: the agent listens to the Windows sound directly (no audio cable needed). A VB-CABLE is optional and only useful for the viewer mic below.</p>
+      <p><b>Mic:</b> their mic plays into this PC so your games/Discord hear them (with a cable: set your mic input to <i>CABLE Output</i>). The sound pauses while a viewer talks so their own voice never echoes back. <b>Ctrl+M</b> in the viewer turns the mic on/off.</p>
+      <p><b>Buttons:</b> 🔇 sound · 🎙️ talk · ⚙️ settings · 🎞️ quality · ⛶ fullscreen · 🔄 restart capture. <b>Ctrl+L</b> locks the mouse for games (<b>Esc</b> releases it). <b>Ctrl+M</b> turns the mic on/off.</p>
+      <p><b>Embedding:</b> this page can be shown inside an iframe; add <code>?viewonly=1</code> to the address of embeds that should not be able to control the PC. The mic needs the embed to allow it — add <code>allow="microphone"</code> to the iframe, or open the link in its own tab to talk. Easiest: the <b>Floating Window</b> button on a device in your dashboard opens the viewer in its own window <i>with the mic already allowed</i>. The <b>Install App</b> button in the top bar installs ClankerDesk as a real app (own window, launcher icon — on a Chromebook it lands in the app launcher).</p>
+      <p class="info-credit">This was made by an AI. The UI was mostly designed by humans, though. That's why this is named ClankerDesk.</p>
+    </div>
+    <button id="infoCloseBtn" type="button">Got it</button>
+  </div>
+</div>
+
+<!-- ================= DEVICES (dashboard) ================= -->
+<div id="dashScreen" class="hidden">
+  <div class="dash-card">
+    <button id="dashXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <div class="dash-head">
+      <h1>Devices</h1>
+      <button id="dashRefreshBtn" class="mini-btn" type="button">↻ Refresh</button>
+    </div>
+    <p class="dash-sub" id="dashSub">Your ClankerDesk PCs. Click one, enter its PIN, and you're in.</p>
+    <div id="deviceList" class="device-list">
+      <div class="dash-empty">Looking for devices…</div>
+    </div>
+    <div class="dash-foot">
+      <button id="dashManualBtn" type="button" class="link-btn">Connect manually (wss URL + token)</button>
+      <button id="dashLogoutBtn" type="button" class="link-btn">Log out</button>
+      <button id="dashCloseBtn" type="button" class="link-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= PIN PROMPT ================= -->
+<div id="pinScreen" class="hidden">
+  <div class="login-card pin-card">
+    <button id="pinXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <h1 id="pinTitle">Connect to device</h1>
+    <p class="pin-hint">Enter the PIN shown in that PC's ClankerDesk window (its console at startup, or its Info page).</p>
+    <form id="pinForm" autocomplete="off">
+      <label for="pinInput">Device PIN</label>
+      <input id="pinInput" type="text" placeholder="e.g. K7M2QX" spellcheck="false" maxlength="16" autocapitalize="characters" />
+      <div id="pinError"></div>
+      <button id="pinConnectBtn" type="submit">Connect</button>
+    </form>
+    <button id="pinBackBtn" type="button" class="link-btn">Back to devices</button>
+  </div>
+</div>
+
+<!-- ================= DOWNLOADS (versions) ================= -->
+<div id="downloadScreen" class="hidden">
+  <div class="dash-card">
+    <button id="downXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
+    <div class="dash-head">
+      <h1>Download ClankerDesk</h1>
+    </div>
+    <p class="dash-sub">Pick a version — the file downloads straight to this PC. Unzip it, run <b>Setup.bat</b> (Full setup) or <b>Start-Agent.bat</b> (Portable).</p>
+    <div class="device-list">
+      <div class="ver-row">
+        <div class="ver-info">
+          <span class="ver-chip">v1.0</span>
+          <span class="name">Full setup — recommended</span>
+          <span class="ver-desc">Installs everything automatically, even Node.js. For most people.</span>
+        </div>
+        <a class="ver-dl" href="/download/clankerdesk-v1.0.zip" download>Download</a>
+      </div>
+      <div class="ver-row">
+        <div class="ver-info">
+          <span class="ver-chip">v1.0</span>
+          <span class="name">Portable</span>
+          <span class="ver-desc">Agent only. Needs Node.js already installed on that PC.</span>
+        </div>
+        <a class="ver-dl" href="/download/clankerdesk-v1.0-portable.zip" download>Download</a>
+      </div>
+    </div>
+    <div class="dash-foot">
+      <span class="ver-note">New versions show up here automatically.</span>
+      <button id="downCloseBtn" type="button" class="link-btn">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= VIEWER ================= -->
+<div id="viewerScreen" class="hidden">
+  <div id="wrap">
+    <div id="topbar">
+      <div id="hud">disconnected</div>
+      <div id="topbarButtons">
+        <button id="soundBtn" class="tb-btn" tabindex="-1" title="Click to enable sound" aria-label="Sound">
+          <svg class="ico ico-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/></svg>
+          <svg class="ico ico-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        </button>
+        <button id="micBtn" class="tb-btn" title="Click to talk through your mic on the other PC" aria-label="Microphone">
+          <svg class="ico ico-on" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg>
+          <svg class="ico ico-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M1 1l22 22M9 5a3 3 0 0 1 6 0v5m-.9 3.1A3 3 0 0 1 9 10.9V10M5 10a7 7 0 0 0 11.8 5M19 10a7 7 0 0 1-.6 2.8M12 17v4M8 21h8"/></svg>
+        </button>
+        <div class="q-wrap">
+          <button id="qualityBtn" class="tb-btn" title="Stream quality" aria-label="Stream quality" aria-haspopup="true" aria-expanded="false">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/><text id="qualityLabel" x="12" y="15.5" text-anchor="middle" font-size="8.5" font-weight="700" fill="currentColor" font-family="inherit">1080</text></svg>
+          </button>
+          <!-- Resolution picker. Opens under the 🎞️ button, same glassy-blue
+               look as the features card on the home page. -->
+          <div id="qualityMenu" class="q-menu" role="menu" aria-label="Stream quality" hidden>
+            <div class="q-menu-title">Stream quality</div>
+            <button type="button" class="q-item" data-quality="1080p60" role="menuitemradio" aria-checked="false">
+              <span class="q-item-main">1080p60</span>
+              <span class="q-item-sub">Full HD · 60 fps · sharpest</span>
+            </button>
+            <button type="button" class="q-item" data-quality="720p60" role="menuitemradio" aria-checked="false">
+              <span class="q-item-main">720p60</span>
+              <span class="q-item-sub">HD · 60 fps · smoothest</span>
+            </button>
+            <button type="button" class="q-item" data-quality="1080p30" role="menuitemradio" aria-checked="false">
+              <span class="q-item-main">1080p30</span>
+              <span class="q-item-sub">Full HD · 30 fps · saves bandwidth</span>
+            </button>
+          </div>
+        </div>
+        <button id="settingsBtn" class="tb-btn" title="Connection settings" aria-label="Settings">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></svg>
+        </button>
+        <button id="fullscreenBtn" class="tb-btn" title="Toggle fullscreen" aria-label="Fullscreen">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+        </button>
+        <button id="restartCaptureBtn" class="tb-btn" title="Restart video capture (fixes a stuck/invisible cursor without restarting the agent)" aria-label="Restart capture">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 4v6h-6M3 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L21 10M3 14l2.6 4.4A9 9 0 0 0 20.5 15"/></svg>
+        </button>
+        <span class="tb-sep" aria-hidden="true"></span>
+        <button id="disconnectBtn" class="tb-btn tb-danger" title="Disconnect from this PC" aria-label="Disconnect">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 6.6a9 9 0 1 1-12.8 0M12 2v9"/></svg>
+          <span class="tb-label">Disconnect</span>
+        </button>
+      </div>
+    </div>
+    <canvas id="screen" width="1920" height="1080"></canvas>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

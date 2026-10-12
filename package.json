@@ -1,0 +1,33 @@
+{
+  "name": "remote-desktop-relay",
+  "version": "1.0.0",
+  "description": "TCP-relay-free remote desktop: Cloudflare Worker relay + Windows FFmpeg/NVENC agent + WebCodecs browser viewer",
+  "private": true,
+  "main": "agent/agent.js",
+  "engines": {
+    "node": ">=24.20.0"
+  },
+  "scripts": {
+    "start": "node agent/agent.js",
+    "agent": "node agent/agent.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "node-interception": "^2.0.4"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  },
+  "allowScripts": {
+    "node-interception@2.0.4": true
+  },
+  "cloudflare": {
+    "bindings": {
+      "ACCOUNT_SECRET": {
+        "description": "A random string that signs login cookies for **your** ClankerDesk. Generate your own (for example run `node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"`) and paste it here. Do not reuse the example value -- anyone who knows it can forge a login for any account on this instance. Leave it blank and ClankerDesk still runs, but Sign up / Log in stay switched off."
+      }
+    }
+  }
+}

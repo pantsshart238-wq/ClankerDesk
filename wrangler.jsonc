@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "clankerdesk",
+  "main": "src/index.js",
+  "compatibility_date": "2024-09-23",
+
+  // Serves public/index.html (and any other files in public/) for every
+  // request that isn't the /ws websocket route. run_worker_first makes the
+  // request pass through the Worker, so it can inject the wss:// address
+  // into the HTML before sending it.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "RELAY", "class_name": "RelaySession" }
+    ]
+  },
+
+  // Required so the Durable Object class can actually be deployed.
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RelaySession"] }
+  ],
+
+  // ACCOUNT_SECRET signs the login session cookies. It is deliberately NOT a
+  // var here: this file is published in the public source repo so other people
+  // can one-click deploy their own ClankerDesk, and a secret sitting in it
+  // would let anyone forge a login cookie for any account on any instance
+  // running this code. It lives in Cloudflare's encrypted secret store
+  // instead (see .dev.vars.example for how deployers set their own).
+  // Changing it logs everyone out; passwords and account keys are unaffected.
+  "vars": {
+    // Public GitHub repo holding this source. Set it to enable the "Run your
+    // own relay" card and its Cloudflare deploy button. Leave it "" and the
+    // card stays hidden -- a half-set URL would only produce a dead button.
+    "DEPLOY_REPO_URL": ""
+  }
+}

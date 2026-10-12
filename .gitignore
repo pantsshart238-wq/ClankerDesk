@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# NEVER COMMIT THESE -- they hold private keys and this PC's PIN.
+#
+#   config.json   -> your account's PRIVATE KEY (relayToken). Anyone with it can
+#                    register a PC as you.
+#   device.json   -> this PC's device id and the 6-digit PIN that lets people
+#                    connect to it.
+#   PUBLIC-LINK.txt -> your live temporary tunnel address.
+#
+# A public repo (the Deploy to Cloudflare button needs one) would hand these to
+# the whole internet. The repo carries config.json.example instead.
+# ---------------------------------------------------------------------------
+config.json
+device.json
+PUBLIC-LINK.txt
+
+# Cloudflare's local deploy state (caches, generated ids)
+.wrangler/
+
+# Dependencies -- reinstalled with `npm install`
+node_modules/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+
+# Logs and stray captures
+*.log
+npm-debug.log*
+
+# Auto-generated folder/source dumps -- they duplicate the repo and go stale.
+CURRENT_PROJECT_TREE.txt
+CURRENT_PROJECT_SOURCE.txt
+
+# Internal working notes for the AI agent, not part of the software.
+AGENTS.md
