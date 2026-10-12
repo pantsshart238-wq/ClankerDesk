@@ -241,17 +241,38 @@ html, body {
 }
 
 .self-host {
-  margin: 0 clamp(24px, 5vw, 72px) 8px;
+  margin: 0 clamp(24px, 5vw, 72px) clamp(16px, 2.5vw, 28px);
   grid-template-columns: 1fr;
-  gap: 12px;
+  gap: 10px;
+  text-align: left;
 }
 .self-host[hidden] { display: none; }
+.self-host .f-title { color: #0b0f14; }
 .self-host-steps { font-size: clamp(13px, 1.3vw, 15px); }
 .self-host code {
   font-family: var(--mono); font-size: .92em;
   background: rgba(255, 255, 255, .45); padding: 1px 5px; border-radius: 4px;
+  word-break: break-word;
 }
 .self-host .nav-btn { display: inline-block; text-decoration: none; }
+
+/* Top-bar "Host your own" -- a solid dark pill so it reads as its own call to
+   action next to the paler nav buttons, without competing with Login. */
+.nav-btn.self-host-nav {
+  background: var(--dark);
+  color: #fff;
+  border-color: var(--dark);
+  text-decoration: none;
+}
+.nav-btn.self-host-nav:hover { background: #000; color: #fff; border-color: #000; }
+.navbar:hover .nav-btn.self-host-nav { background: #000; color: #fff; border-color: #000; }
+.self-host-nav[hidden] { display: none; }
+
+/* Phones: the bar already carries six buttons, so the pill would overflow it.
+   The card under the headline still carries the same link. */
+@media (max-width: 760px) {
+  .self-host-nav { display: none !important; }
+}
 
 .foot {
   padding: 0 clamp(24px, 5vw, 72px) 34px;

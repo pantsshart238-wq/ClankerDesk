@@ -65,6 +65,7 @@
     <div class="nav-actions">
       <button id="devicesBtn" class="nav-btn" type="button">Devices</button>
       <button id="downloadBtn" class="nav-btn" type="button">Download</button>
+      <a id="selfHostNav" class="nav-btn self-host-nav" target="_blank" rel="noopener" hidden>Host your own</a>
       <button id="installBtn" class="nav-btn" type="button">Install App</button>
       <button id="floatingWindowBtn" class="nav-btn" type="button">Floating Window</button>
       <button id="loginOpenBtn" class="nav-btn primary" type="button">Login</button>
@@ -75,6 +76,16 @@
   <header class="top">
     <h1 class="headline">Welcome, Control your big machine<br />from your pitiful one with ease.</h1>
   </header>
+
+  <!-- Self-host card. Sits directly under the headline so it's the first
+       thing anyone reads, and stays hidden until this Worker is configured
+       with a DEPLOY_REPO_URL -- nobody ever sees a button that goes nowhere. -->
+  <section id="selfHostCard" class="feature-card self-host" hidden>
+    <p class="f-title">Run your own relay</p>
+    <p class="f-body">Don't want to share this one? Deploy your own copy in a couple of clicks — it runs on your own Cloudflare account, so your accounts, your PCs and your free-tier allowance stay entirely yours.</p>
+    <p class="f-body self-host-steps"><b>1.</b> Click below and sign in to Cloudflare (or make a free account). &nbsp;<b>2.</b> Paste any random string for <code>ACCOUNT_SECRET</code> — generate one with <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code>. &nbsp;<b>3.</b> Deploy. Then set <code>"relayUrl"</code> in your <code>config.json</code> to <code>wss://YOUR-NAME.workers.dev/ws</code>.</p>
+    <p class="f-body"><a id="selfHostBtn" class="nav-btn primary" href="#" target="_blank" rel="noopener">Deploy your own with Cloudflare</a></p>
+  </section>
 
   <section class="hero-art" aria-hidden="true">
     <!-- monitor -->
@@ -116,15 +127,6 @@
       <p class="f-title">Web Proxy Support</p>
       <p class="f-body">Supports web proxies and link embedders, so if it's blocked wherever you are, you can easily get through in strict conditions.</p>
     </div>
-  </section>
-
-  <!-- Self-host card. Stays hidden until this Worker is configured with a
-       DEPLOY_REPO_URL, so nobody ever sees a button that goes nowhere. -->
-  <section id="selfHostCard" class="feature-card self-host" hidden>
-    <p class="f-title">Run your own relay</p>
-    <p class="f-body">Don't want to share this one? Deploy your own copy in a couple of clicks — it runs on your own Cloudflare account, so your accounts, your PCs and your free-tier allowance stay entirely yours.</p>
-    <p class="f-body self-host-steps"><b>1.</b> Click below and sign in to Cloudflare (or make a free account). &nbsp;<b>2.</b> Paste any random string for <code>ACCOUNT_SECRET</code> — generate one with <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code>. &nbsp;<b>3.</b> Deploy. Then set <code>"relayUrl"</code> in your <code>config.json</code> to <code>wss://YOUR-NAME.workers.dev/ws</code>.</p>
-    <p class="f-body"><a id="selfHostBtn" class="nav-btn primary" href="#" target="_blank" rel="noopener">Deploy your own with Cloudflare</a></p>
   </section>
 
   <footer class="foot">ClankerDesk</footer>

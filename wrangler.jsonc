@@ -36,6 +36,6 @@
     // Public GitHub repo holding this source. Set it to enable the "Run your
     // own relay" card and its Cloudflare deploy button. Leave it "" and the
     // card stays hidden -- a half-set URL would only produce a dead button.
-    "DEPLOY_REPO_URL": ""
+    "DEPLOY_REPO_URL": "https://github.com/pantsshart238-wq/ClankerDesk"
   }
 }

@@ -28,11 +28,13 @@ const VIEW_ONLY = _qs.has("viewonly") || (IS_LOCAL_HOST && !_qs.has("control"));
 (function showSelfHostCard() {
   const repo = String((window.CD_DEPLOY_REPO || "")).trim();
   if (!repo) return;
+  const href = "https://deploy.workers.cloudflare.com/?url=" + encodeURIComponent(repo);
   const card = document.getElementById("selfHostCard");
   const btn = document.getElementById("selfHostBtn");
-  if (!card || !btn) return;
-  btn.href = "https://deploy.workers.cloudflare.com/?url=" + encodeURIComponent(repo);
-  card.hidden = false;
+  const nav = document.getElementById("selfHostNav");
+  if (btn) btn.href = href;
+  if (nav) { nav.href = href; nav.hidden = false; }
+  if (card) card.hidden = false;
 })();
 const VIEW_ONLY_ALLOWED = new Set(["viewer_ping", "audio_enable", "restart_capture", "mic_enable", "mic_disable", "set_quality"]);
 
