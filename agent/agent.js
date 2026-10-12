@@ -20,6 +20,13 @@ const os = require("os");
 const crypto = require("crypto");
 const WebSocket = require("ws");
 
+// Capture/encode/audio/input, per operating system. On Windows this returns
+// byte-for-byte what used to be hardcoded in startFfmpeg(), so nothing about
+// the working build changes; it exists so macOS and Linux can use the same
+// relay, wire format and viewer. Required up here (not next to the video
+// code) because a couple of early error paths reference it.
+const platform = require("./platform");
+
 // ---------------------------------------------------------------------------
 // config.json (project root) -- your settings, read automatically on startup.
 // Just double-click Start-Agent.bat; no other program or web page is involved.
@@ -78,7 +85,15 @@ let Interception = null;
 try {
   ({ Interception } = require("node-interception"));
 } catch (e) {
-  console.error("[interception] node-interception not installed; game clicks/relative-move will fall back to PowerShell (works for desktop/browser, not most games). Run: npm.cmd install node-interception");
+  // node-interception is Windows-only (it drives a virtual HID via a kernel
+  // driver). On Linux and macOS there is nothing to install -- the platform
+  // input helper does the work instead -- so do not send those users chasing
+  // an npm package that could never help them.
+  console.error(
+    process.platform === "win32"
+      ? "[interception] node-interception not installed; game clicks/relative-move will fall back to PowerShell (works for desktop/browser, not most games). Run: npm.cmd install node-interception"
+      : "[interception] node-interception is Windows-only; using the native " + platform.name + " input helper instead. Clicks and keys will work for desktop apps and browsers (not most anti-cheat games)."
+  );
 }
 
 const RELAY_URL = process.env.RELAY_URL || "wss://your-worker.workers.dev/ws";
@@ -315,60 +330,10 @@ let relaunchFast = false;
 // ---------------------------------------------------------------------------
 
 function startFfmpeg() {
-  const args = [
-    // gfxcapture (Windows Graphics Capture) -- the capture method we're keeping.
-    // It handles busy 3D scenes without the freezing ddagrab/gdigrab showed.
-    "-init_hw_device", "d3d11va",
-    // The active quality preset picks the capture framerate and, for the
-    // 720p presets, adds a downscale in the same filter chain (so the
-    // encoder never sees more pixels than it must).
-    //
-    // gfxcapture hands back D3D11 (GPU) frames, and the plain `scale` filter
-    // cannot read that format -- it aborts the whole graph with "Error
-    // configuring filter graph: Function not implemented", so ffmpeg died
-    // instantly and 720p never produced a picture. The downscale therefore
-    // downloads to system memory first (bgra), scales there, and converts to
-    // the nv12 NVENC wants. Presets that don't downscale keep the original
-    // untouched GPU path.
-    "-filter_complex", `gfxcapture=monitor_idx=0:max_framerate=${preset.fps}:capture_cursor=1` +
-      (preset.w !== WIDTH || preset.h !== HEIGHT
-        ? `,hwdownload,format=bgra,scale=${preset.w}:${preset.h},format=nv12`
-        : ""),
-
-    "-c:v", "h264_nvenc",
-    "-preset", "p1",           // reverted from p4 back to p1 -- p1 is the most
-                               // consistent/lowest-latency preset with the least
-                               // per-frame timing variance; prioritizing "never
-                               // laggy" over "slightly sharper text" right now
-    "-tune", "ull",            // zero lookahead/buffering
-    "-slices", "1",           // force exactly one slice per frame -- the AnnexBFrameParser
-                               // below assumes this to find frame boundaries; without it, a
-                               // multi-slice frame (more likely in high-motion scenes) can
-                               // confuse the browser's decoder and stall video with no error
-    "-rc", "cbr",
-    "-b:v", preset.bitrate,
-    "-maxrate", preset.bitrate,
-    "-bufsize", preset.bufsize, // deliberately smaller than the bitrate -- a bufsize equal to
-                               // the full bitrate lets up to ~1 second of frames queue up before
-                               // delivery (exactly what "randomly gets delayed" feels like);
-                               // a tighter buffer forces the encoder to drop quality briefly
-                               // during spikes instead of building up a delay
-    "-g", String(preset.fps),  // keyframe once a second. The viewer's latency guard
-                               // resyncs a falling-behind decoder on the NEXT
-                               // keyframe, so this gap bounds how long a slow
-                               // client freezes before it is live again. (This was
-                               // widened to 10s once to smooth periodic bitrate
-                               // spikes; CBR absorbs a 1/s IDR fine, and a delay
-                               // that grows forever is far worse than a
-                               // once-a-second size bump.)
-    "-profile:v", "high",
-    "-level:v", "5.1",
-    "-bf", "0",                // no B-frames: keeps decode order == display order, simplifies timestamps
-    "-forced-idr", "1",
-
-    "-f", "h264",
-    "pipe:1",
-  ];
+  // Windows: gfxcapture + NVENC, exactly as before (platform-selftest.js
+  // proves the argv is unchanged). macOS: avfoundation + VideoToolbox.
+  // Linux: x11grab + NVENC, or x264 when there is no NVIDIA card.
+  const args = platform.videoArgs(preset, { nativeW: WIDTH, nativeH: HEIGHT });
 
   console.log("Starting ffmpeg:", "ffmpeg", args.join(" "));
   const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -620,15 +585,18 @@ class OggPacketParser {
 
 function startFfmpegAudio() {
   const helper = path.join(__dirname, "audio-helper.ps1");
-  // audioDevice empty (the default) = WASAPI loopback: audio-helper.ps1
-  // listens to whatever the PC plays and streams raw PCM to us -- no
-  // VB-CABLE, no Stereo Mix, nothing to install. A set audioDevice keeps
-  // the old explicit dshow capture device.
-  const loopback = isLoopbackAudio();
-  const inputArgs = loopback
-    ? ["-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "pipe:0"]
-    : ["-f", "dshow", "-audio_buffer_size", "20", "-use_wallclock_as_timestamps", "1",
-       "-i", `audio=${AUDIO_DEVICE || "CABLE Output (VB-Audio Virtual Cable)"}`];
+  // Where the sound comes from, per platform:
+  //   Windows -- audioDevice empty (the default) means WASAPI loopback:
+  //     audio-helper.ps1 listens to whatever the PC is playing and streams raw
+  //     PCM to us -- no VB-CABLE, no Stereo Mix, nothing to install. A set
+  //     audioDevice keeps the old explicit dshow capture device.
+  //   Linux   -- the PulseAudio/PipeWire monitor source, which is the same
+  //     idea and equally free of extra hardware.
+  //   macOS   -- a virtual audio device (BlackHole), since macOS has no
+  //     built-in system-audio capture.
+  const audioSpec = platform.audioInputArgs({ audioDevice: AUDIO_DEVICE });
+  const loopback = audioSpec.helper;
+  const inputArgs = audioSpec.args;
   const args = [
     ...inputArgs,
     "-af", "aresample=async=1000",
@@ -893,20 +861,9 @@ function tellRelayMicIsolated(on) {
 // someone is watching. It is plain text, so the relay forwards it to viewers
 // exactly like the other status messages.
 const SYSTEM_INFO = (() => {
-  let osName = "Windows";
-  let release = "";
-  try {
-    // Windows reports its real build here ("10.0.22631"), which is far more
-    // useful than the generic "win32" that os.type() gives.
-    const rel = os.release();
-    if (/^\d+\.\d+\.\d+/.test(rel)) {
-      const parts = rel.split(".").map(Number);
-      const maj = parts[0], build = parts[2];
-      const names = { 10: "Windows 10/11", 6: "Windows Vista", 7: "Windows 7", 5: "Windows XP" };
-      osName = names[maj] || "Windows";
-      release = "build " + build;
-    }
-  } catch (e) { /* keep the default */ }
+  // Each platform names itself its own way -- Windows from its build number,
+  // Linux from /etc/os-release, macOS from its Darwin major version.
+  let osName = platform.osLabel(os.release());
   let cpu = "";
   try {
     const c = os.cpus();
@@ -919,7 +876,7 @@ const SYSTEM_INFO = (() => {
   return {
     id: DEVICE.deviceId,
     name: DEVICE_NAME,
-    os: osName + (release ? " (" + release + ")" : ""),
+    os: osName,
     cpu: cpu,
     ram: ram,
   };
@@ -1292,6 +1249,10 @@ function disableMic(reason, vid) {
 // the real speakers and games hear nothing. audio-helper.ps1 checks and
 // restores it, logging one line either way.
 function ensureAudioRouting() {
+  // Windows only: this restores the default render device around the VB-CABLE
+  // mic path. That cable does not exist on Linux or macOS, and PowerShell is
+  // not installed there, so there is nothing to do and nothing to spawn.
+  if (process.platform !== "win32") return;
   const helper = path.join(__dirname, "audio-helper.ps1");
   if (!fs.existsSync(helper)) return;
   try {
@@ -1317,6 +1278,10 @@ function ensureAudioRouting() {
 // "micDevice" in config.json (or the MIC_DEVICE env var) forces a choice;
 // otherwise the helper scans the playback devices for CABLE-B / CABLE-A.
 function detectMicCable(done) {
+  // Windows only: the whole VB-CABLE / Voicemeeter probe is a WASAPI idea.
+  // On Linux and macOS the mic is opened directly, so report "no cable" and
+  // let the normal direct-mic path run.
+  if (process.platform !== "win32") { if (done) done(false); return; }
   // Which device should carry the mic alone? A second VB-CABLE (A+B pack)
   // or the free Voicemeeter virtual cable both work; "micDevice" in
   // config.json (or MIC_DEVICE env) forces a specific playback-device prefix.
@@ -1795,20 +1760,24 @@ function handleInputEvent(event) {
 }
 
 function startInputHelper() {
-  const scriptPath = path.join(__dirname, "input-helper.ps1");
+  // Windows: input-helper.ps1 (user32.dll SendInput).
+  // Linux/macOS: helpers/input-{linux,macos}.js, which read the SAME JSON-lines
+  // protocol on stdin, so forwardInputToHelper below is identical everywhere.
+  const spec = platform.inputHelper();
+  const scriptPath = path.join(__dirname, spec.script);
+  const cmdArgs = spec.extra.concat([scriptPath]);
 
-  inputHelper = spawn("powershell.exe", [
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-File",
-    scriptPath,
-  ], {
+  console.log(`Starting input helper: ${spec.command} ${cmdArgs.join(" ")}`);
+  inputHelper = spawn(spec.command, cmdArgs, {
     stdio: ["pipe", "inherit", "inherit"]
   });
 
+  inputHelper.on("error", (e) => {
+    console.error(`[input] helper failed to start (${e.message}). Input will not work.`);
+  });
+
   inputHelper.on("exit", (code) => {
-    console.error(`input-helper.ps1 exited (code=${code}); restarting in 2s`);
+    console.error(`input helper exited (code=${code}); restarting in 2s`);
     setTimeout(startInputHelper, 2000);
   });
 }
@@ -2560,6 +2529,24 @@ if (USE_RELAY) {
       }
     }
 } else console.log("[relay] relay connection is off (USE_RELAY=0 or no RELAY_URL set) -- direct viewers only");
+
+  // Before anything chatty starts, check the things this OS needs are actually
+  // here. A missing package otherwise shows up much later as an opaque ffmpeg
+  // exit code, and on macOS the permissions are worth saying out loud.
+  if (typeof platform.preflight === "function") {
+    const check = platform.preflight();
+    if (check.warns && check.warns.length) {
+      for (const w of check.warns) console.error("[setup] " + w);
+    }
+    if (check.problems && check.problems.length) {
+      console.error("");
+      console.error("  ================= SOMETHING IS MISSING =================");
+      for (const p of check.problems) console.error("  " + p);
+      console.error("  Run ./Setup.sh in this folder to install what's needed.");
+      console.error("  =====================================================");
+      console.error("");
+    }
+  }
 
   // Now that nobody is typing, let the chatty parts talk.
   ensureAudioRouting();

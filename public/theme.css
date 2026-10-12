@@ -745,6 +745,31 @@ html, body {
 
 /* ---- download versions ---- */
 
+/* Group headings so the Windows / macOS / Linux builds are grouped, not one
+   flat list of four near-identical rows. */
+.ver-group {
+  display: flex; align-items: center; gap: 8px;
+  margin: 6px 2px 2px;
+  font-size: 11px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(11, 15, 20, .5);
+}
+.ver-group:first-child { margin-top: 0; }
+.ver-group + .ver-row { margin-top: 0; }
+.device-list > .ver-group:not(:first-child) { margin-top: 18px; }
+
+/* "beta" sits next to the group name. Deliberately quiet -- not a red alarm,
+   just an honest label that these two are newer than the Windows build. */
+.ver-beta {
+  padding: 2px 7px; border-radius: 6px;
+  background: rgba(150, 171, 194, .34);
+  border: 1px solid rgba(255, 255, 255, .55);
+  font-size: 9.5px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(11, 15, 20, .62);
+}
+.device-list > .ver-row { margin-top: 10px; }
+
 /* Version cards on the download page: the same glass as a device card, so the
    two popups read as one design. */
 .ver-row {

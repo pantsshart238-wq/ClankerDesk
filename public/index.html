@@ -321,25 +321,47 @@
       <button id="downXBtn" class="x-btn" type="button" aria-label="Close">✕</button>
     </div>
     <div class="dash-bar">
-      <span class="dash-sub">Pick a version — the file downloads straight to this PC. Unzip it, run <b>Setup.bat</b> (Full setup) or <b>Start-Agent.bat</b> (Portable).</span>
+      <span class="dash-sub">Pick your machine. Windows runs <b>Setup.bat</b>; macOS and Linux run <b>Setup.sh</b> in a terminal. All of them end up in the same dashboard.</span>
     </div>
     <div class="device-list">
+      <div class="ver-group">Windows</div>
       <div class="ver-row">
         <div class="ver-info">
           <span class="ver-chip">v1.0</span>
-          <span class="name">Full setup — recommended</span>
-          <span class="ver-desc">Installs everything automatically, even Node.js. For most people.</span>
+          <span class="name">Windows — full setup</span>
+          <span class="ver-desc">Recommended. Installs everything automatically, even Node.js. Double-click to run.</span>
         </div>
         <a class="ver-dl" href="/download/clankerdesk-v1.0.zip" download>Download</a>
       </div>
       <div class="ver-row">
         <div class="ver-info">
           <span class="ver-chip">v1.0</span>
-          <span class="name">Portable</span>
+          <span class="name">Windows — portable</span>
           <span class="ver-desc">Agent only. Needs Node.js already installed on that PC.</span>
         </div>
         <a class="ver-dl" href="/download/clankerdesk-v1.0-portable.zip" download>Download</a>
       </div>
+
+      <div class="ver-group">macOS <span class="ver-beta">beta</span></div>
+      <div class="ver-row">
+        <div class="ver-info">
+          <span class="ver-chip">v1.0</span>
+          <span class="name">macOS</span>
+          <span class="ver-desc">Unzip, then run <b>chmod +x Setup.sh</b> and <b>./Setup.sh</b>. macOS will ask for Screen Recording and Accessibility permission.</span>
+        </div>
+        <a class="ver-dl" href="/download/clankerdesk-v1.0-macos.zip" download>Download</a>
+      </div>
+
+      <div class="ver-group">Linux <span class="ver-beta">beta</span></div>
+      <div class="ver-row">
+        <div class="ver-info">
+          <span class="ver-chip">v1.0</span>
+          <span class="name">Linux</span>
+          <span class="ver-desc">Unzip, then run <b>chmod +x Setup.sh</b> and <b>./Setup.sh</b>. Works on X11; the notes cover Wayland.</span>
+        </div>
+        <a class="ver-dl" href="/download/clankerdesk-v1.0-linux.zip" download>Download</a>
+      </div>
+
       <div class="dash-empty">New versions show up here automatically.</div>
     </div>
   </div>
