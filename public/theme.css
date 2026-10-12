@@ -464,61 +464,159 @@ html, body {
 }
 .x-btn:hover { background: var(--dark); border-color: var(--dark); color: #fff; }
 
-/* ---- devices dashboard ---- */
+/* ---- devices dashboard ----------------------------------------------------
+   A full popup panel in the site's own language: glassy blue top bar like the
+   home page navbar, glassy buttons, and device cards built from the same glass
+   as the features card. Structure and ids are untouched -- this is purely how
+   it looks. */
 
 #dashScreen {
   position: fixed; inset: 0; z-index: 110;
   display: flex; align-items: center; justify-content: center;
+  padding: 24px;
   background: rgba(8, 10, 14, .55);
-  backdrop-filter: blur(3px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .dash-card {
-  width: min(460px, calc(100vw - 32px));
-  max-height: min(560px, calc(100vh - 40px));
+  position: relative;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 48px));
   display: flex; flex-direction: column;
-  background: #fff;
-  border: 1.5px solid var(--line);
-  border-radius: 16px;
+  overflow: hidden;
+  padding: 0;
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 24px;                       /* var(--radius) */
   box-shadow: 0 24px 64px rgba(0, 0, 0, .35);
-  padding: 22px;
 }
 
-.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.dash-head h1 { margin: 0; font-size: 17px; font-weight: 800; }
-.dash-sub { margin: 8px 0 14px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
-
-.device-list { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 90px; }
-
-.device-row {
+/* Glassy top bar, matching .navbar on the home page */
+.dash-head {
   display: flex; align-items: center; gap: 10px;
-  padding: 11px 13px;
-  border: 1.5px solid var(--line);
-  border-radius: 10px;
-  background: #f8fafc;
+  padding: 16px 22px;
+  background: rgba(150, 171, 194, .22);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border-bottom: 1px solid rgba(255, 255, 255, .45);
+}
+.dash-head h1 {
+  margin: 0; font-size: 19px; font-weight: 800; color: #0b0f14;
+  letter-spacing: -.01em;
+}
+.dash-head .spacer { flex: 1 1 auto; }
+
+/* glassy pill buttons, same shape as .nav-btn */
+.dash-head .mini-btn, .dash-foot .link-btn {
+  padding: 8px 15px;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .5);
+  color: #0b0f14;
+  font: 700 12.5px var(--font);
+  cursor: pointer;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
+}
+.dash-head .mini-btn:hover, .dash-foot .link-btn:hover {
+  background: #fff; transform: translateY(-1px);
+}
+.dash-head .mini-btn:active, .dash-foot .link-btn:active { transform: scale(.97); }
+
+.dash-sub {
+  margin: 0; padding: 14px 22px 0;
+  font-size: 12.5px; color: var(--muted); line-height: 1.45;
+}
+
+.device-list {
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px 22px;
+  min-height: 110px;
+}
+
+/* Device cards: the same glass as the features card, solid on hover */
+.device-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: 16px;
+  background: rgba(150, 171, 194, .20);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  transition: background .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.device-row:hover {
+  background: var(--card-blue);
+  border-color: rgba(29, 58, 117, .18);
+  box-shadow: 0 12px 30px rgba(23, 44, 92, .18);
 }
 .device-row .dot {
-  width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto;
+  width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
   background: #9aa4b0;
 }
-.device-row.online .dot { background: #23a55a; box-shadow: 0 0 0 3px rgba(35, 165, 90, .18); }
-.device-row .name { flex: 1 1 auto; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.device-row .seen { font-size: 11px; color: var(--muted); flex: 0 0 auto; }
+.device-row.online .dot { background: #23a55a; box-shadow: 0 0 0 4px rgba(35, 165, 90, .20); }
+.device-row .name {
+  flex: 1 1 auto; font-size: 15px; font-weight: 800; color: #0b0f14;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.device-row .seen { font-size: 11.5px; color: rgba(11, 15, 20, .55); flex: 0 0 auto; font-weight: 600; }
+
+/* "Connect to Device" - the big primary action on the card */
 .device-row button {
-  padding: 6px 15px; border: none; border-radius: 8px;
+  padding: 10px 18px; border: 1px solid transparent; border-radius: 11px;
   background: #2f6fe4; color: #fff;
-  font: 600 12.5px var(--font); cursor: pointer;
-  transition: background .15s;
+  font: 700 12.5px var(--font); cursor: pointer;
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
 }
-.device-row button:hover { background: #245fce; }
+.device-row button:hover { background: #245fce; transform: translateY(-1px); }
+.device-row button:active { transform: scale(.97); }
 .device-row button.float-btn {
-  margin-left: 8px; padding: 5px 13px;
-  background: transparent; color: #2f6fe4;
-  border: 1px solid rgba(47, 111, 228, .55);
+  margin-left: 0; padding: 9px 15px;
+  background: rgba(255, 255, 255, .5); color: #0b0f14;
+  border-color: rgba(255, 255, 255, .6);
 }
-.device-row button.float-btn:hover { background: #2f6fe4; color: #fff; }
-.device-row.offline { opacity: .6; }
+.device-row button.float-btn:hover { background: #fff; color: #0b0f14; }
+.device-row.offline { opacity: .55; }
 .device-row.offline button { background: #b6bfca; cursor: default; }
+.device-row.offline button:hover { background: #b6bfca; transform: none; }
+
+.dash-empty {
+  padding: 34px 12px; text-align: center;
+  color: var(--muted); font-size: 13px; line-height: 1.55;
+}
+.dash-empty.err { color: var(--error); }
+
+.dash-foot {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 14px 22px 18px;
+  border-top: 1px solid rgba(255, 255, 255, .45);
+  background: rgba(150, 171, 194, .16);
+}
+
+/* Close button lives in the glass bar (not absolutely positioned), so it
+   always lines up with the title instead of floating over it. */
+.dash-head .x-btn {
+  position: static;
+  width: 30px; height: 30px; flex: 0 0 auto;
+  background: rgba(255, 255, 255, .55);
+  border-color: rgba(255, 255, 255, .6);
+  color: #0b0f14;
+}
+.dash-head .x-btn:hover { background: var(--dark); border-color: var(--dark); color: #fff; }
+
+/* Stack on phones so nothing gets squeezed */
+@media (max-width: 560px) {
+  #dashScreen { padding: 12px; }
+  .dash-card { max-height: calc(100vh - 24px); border-radius: 18px; }
+  .device-row { flex-wrap: wrap; }
+  .device-row .name { flex: 1 1 100%; order: -1; }
+  .dash-head { padding: 14px 16px; }
+  .device-list { padding: 14px 16px; }
+  .dash-foot { padding: 12px 16px 16px; }
+}
 
 .dash-empty { padding: 26px 8px; text-align: center; color: var(--muted); font-size: 13px; }
 .dash-empty.err { color: var(--error); }
