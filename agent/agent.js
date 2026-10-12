@@ -83,11 +83,157 @@ try {
 
 const RELAY_URL = process.env.RELAY_URL || "wss://your-worker.workers.dev/ws";
 // Fixed token: same every run, so saved viewer logins keep working.
-const RELAY_TOKEN = process.env.RELAY_TOKEN || "1121872352324532328832365433425382714678327459832756445237454";
+// `let` because provisionAccount() fills it in when the person signs up at
+// startup (see below) -- without that they'd still be pasting it by hand.
+let RELAY_TOKEN = process.env.RELAY_TOKEN || "1121872352324532328832365433425382714678327459832756445237454";
 // The relay is optional: set USE_RELAY=0 to use only the direct/public link.
 const USE_RELAY = process.env.USE_RELAY !== "0" && !RELAY_URL.includes("your-worker");
 // Direct viewers (and the public link) are only allowed with a strong token.
-const DIRECT_OK = RELAY_TOKEN !== "CHANGE_ME" && RELAY_TOKEN.length >= 16;
+let DIRECT_OK = RELAY_TOKEN !== "CHANGE_ME" && RELAY_TOKEN.length >= 16;
+
+// ---------------------------------------------------------------------------
+// Account setup: type a username and password, get linked -- no Notepad.
+//
+// The relay's /api/signup and /api/login both hand back the account's private
+// key, which is the one thing that used to have to be copy-pasted out of the
+// website and typed into config.json by hand. Doing it here means a fresh
+// install is: run it, type a username and a password, done.
+// ---------------------------------------------------------------------------
+
+function relayApiBase() {
+  return RELAY_URL.replace(/^wss:/, "https:").replace(/\/ws\/?$/, "").replace(/\/+$/, "");
+}
+
+function promptLine(question) {
+  return new Promise((resolve) => {
+    const rl = require("readline").createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (a) => { rl.close(); resolve(a.trim()); });
+  });
+}
+
+// Passwords never echo, and never get logged or written anywhere but the
+// request body.
+function promptHidden(question) {
+  const ENTER = 10, CR = 13, BACKSPACE = 8, CTRL_D = 4;
+  return new Promise((resolve) => {
+    const input = process.stdin;
+    const output = process.stdout;
+    output.write(question);
+    let typed = "";
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      input.removeListener("data", onData);
+      if (input.setRawMode) input.setRawMode(false);
+      output.write("\n");
+      resolve(typed);
+    };
+    function onData(chunk) {
+      for (const ch of String(chunk)) {
+        const code = ch.charCodeAt(0);
+        if (code === ENTER || code === CR || code === CTRL_D) return finish();
+        if (code === BACKSPACE) typed = typed.slice(0, -1);
+        else if (code >= 32) typed += ch;
+      }
+    }
+    if (input.setRawMode) input.setRawMode(true);
+    input.resume();
+    input.setEncoding("utf8");
+    input.on("data", onData);
+    input.on("end", finish);
+    input.on("close", finish);
+  });
+}
+
+// Write the key back into config.json in place, so the // comment notes in
+// that file survive (a JSON round-trip would delete every one of them).
+function saveRelayTokenToConfig(token) {
+  try {
+    const p = path.join(__dirname, "..", "config.json");
+    const raw = fs.readFileSync(p, "utf8");
+    const next = raw.replace(/("relayToken"\s*:\s*)"[^"]*"/, '$1' + JSON.stringify(token));
+    if (next !== raw) fs.writeFileSync(p, next);
+  } catch (e) {
+    console.warn("[setup] could not save the key to config.json (" + e.message + ")");
+  }
+}
+
+async function provisionAccount() {
+  console.error("");
+  console.error("  ============== SET THIS PC UP ==============");
+  console.error("");
+  console.error("  Make an account for yourself on this relay. One username");
+  console.error("  and one password -- that is the whole setup.");
+  console.error("");
+  console.error("  Already made one? Log in with the same details instead.");
+  console.error("");
+
+  const user = await promptLine("  Username: ");
+  if (!user) {
+    console.error("  No username given -- nothing was changed.");
+    return false;
+  }
+  if (!/^[a-z0-9_-]{3,32}$/.test(user.toLowerCase())) {
+    console.error("  Usernames are 3-32 characters: letters, numbers, _ or -");
+    console.error("  Got: \"" + user + "\"");
+    return false;
+  }
+  const pass = await promptHidden("  Password: ");
+  if (!pass) {
+    console.error("  No password given -- nothing was changed.");
+    return false;
+  }
+  if (pass.length < 8) {
+    console.error("  Passwords need at least 8 characters (that was " + pass.length + ").");
+    return false;
+  }
+
+  const post = async (p) => {
+    try {
+      const r = await fetch(relayApiBase() + p, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: user, password: pass }),
+      });
+      return { status: r.status, json: await r.json().catch(() => ({})) };
+    } catch (e) {
+      return { status: 0, json: { error: "could not reach " + relayApiBase() } };
+    }
+  };
+
+  console.error("  Signing up...");
+  let res = await post("/api/signup");
+
+  // "already taken" just means this person has an account here: log them in
+  // instead of making them dig out which key they pasted last time.
+  if (res.status === 409 || /already taken/i.test((res.json && res.json.error) || "")) {
+    console.error("  That username exists -- logging in instead...");
+    res = await post("/api/login");
+  }
+
+  if (!res.json || !res.json.ok || !res.json.token) {
+    const why = (res.json && res.json.error) || "unknown error";
+    console.error("");
+    console.error("  Could not set this PC up: " + why);
+    if (/too many signups/i.test(why)) {
+      console.error("  (5 signups per hour per network -- wait a bit and try again)");
+    }
+    console.error("");
+    return false;
+  }
+
+  RELAY_TOKEN = res.json.token;
+  process.env.RELAY_TOKEN = RELAY_TOKEN;
+  DIRECT_OK = RELAY_TOKEN.length >= 16;
+  saveRelayTokenToConfig(RELAY_TOKEN);
+
+  console.error("");
+  console.error("  All set. This PC is linked to your account and the key is");
+  console.error("  saved, so you won't be asked again.");
+  console.error("");
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // This PC's identity in the dashboard. Generated once (device.json, next to
@@ -2298,34 +2444,58 @@ ensureAudioRouting();
 if (!isLoopbackAudio()) detectMicCable();
 startInputHelper();
 if (USE_RELAY) {
-  if (looksLikePlaceholderToken(RELAY_TOKEN)) {
-    // Say it up front. The alternative is a silent
-    // "connected / disconnected / retrying in 2s" loop that looks like a
-    // network fault but is really just an un-pasted key.
-    console.error("");
-    console.error("  ============== ONE THING TO DO FIRST ==============");
-    console.error("");
-    console.error("  This PC is not linked to your account yet, so it will NOT");
-    console.error("  appear in your dashboard and nobody can connect to it.");
-    console.error("");
-    console.error("  1. Open the ClankerDesk website and Sign up (or Log in).");
-    console.error("  2. Copy YOUR PRIVATE KEY from the account page.");
-    console.error("  3. Open config.json in this folder with Notepad.");
-    console.error("  4. Replace the text on the \"relayToken\" line with that key.");
-    console.error("  5. Save, then close and re-open ClankerDesk.");
-    console.error("");
-    const local = localPageUrl();
-    if (local) {
-      console.error("  Everything else works without this: the local page at");
-      console.error("  " + local + " is live now.");
-    } else {
-      console.error("  Everything else works without this -- relaying is the only");
-      console.error("  thing that needs the key.");
+  // Async IIFE, not top-level await: this file is CommonJS. It waits for the
+  // username/password below before connecting, so nothing can throw at
+  // require() time and a cancelled setup still connects the relay normally.
+  (async () => {
+    const forceSetup = process.argv.includes("--setup") || process.argv.includes("-s");
+    if (forceSetup || looksLikePlaceholderToken(RELAY_TOKEN)) {
+      // Fresh install: make the account right here. A username and a password
+      // is the whole setup -- no website, no copy-pasting a key into Notepad.
+      // Falls back to printed instructions when there's no terminal to type
+      // into (started as a service, output piped somewhere).
+      let linked = false;
+      if (forceSetup || process.stdin.isTTY) {
+        try {
+          if (forceSetup && !looksLikePlaceholderToken(RELAY_TOKEN)) {
+            console.error("  This PC is already linked. Type the account you want to use:");
+          }
+          linked = await provisionAccount();
+        } catch (e) {
+          console.error("[setup] could not finish setup: " + e.message);
+        }
+      }
+      if (!linked) {
+        console.error("");
+        console.error("  ============== ONE THING TO DO FIRST ==============");
+        console.error("");
+        console.error("  This PC is not linked to your account yet, so it will NOT");
+        console.error("  appear in your dashboard and nobody can connect to it.");
+        console.error("");
+        console.error("  Easiest: close this and re-open ClankerDesk, then type a");
+        console.error("  username and password when it asks.");
+        console.error("");
+        console.error("  Or do it by hand:");
+        console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
+        console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
+        console.error("    3. Open config.json in this folder with Notepad.");
+        console.error("    4. Replace the text on the \"relayToken\" line with that key.");
+        console.error("    5. Save, then close and re-open ClankerDesk.");
+        console.error("");
+        const local = localPageUrl();
+        if (local) {
+          console.error("  Everything else works without this: the local page at");
+          console.error("  " + local + " is live now.");
+        } else {
+          console.error("  Everything else works without this -- relaying is the only");
+          console.error("  thing that needs the key.");
+        }
+        console.error("  ====================================================");
+        console.error("");
+      }
     }
-    console.error("  ====================================================");
-    console.error("");
-  }
-  connectRelay();
+    connectRelay();
+  })();
 } else console.log("[relay] relay connection is off (USE_RELAY=0 or no RELAY_URL set) -- direct viewers only");
 
 process.on("SIGINT", () => {
