@@ -20,12 +20,20 @@ New-Item -ItemType Directory -Path $stage, (Join-Path $stage "agent"), (Join-Pat
 Copy-Item (Join-Path $root "Setup.bat")            $stage
 Copy-Item (Join-Path $root "Start-Agent.bat")      $stage
 Copy-Item (Join-Path $root "agent\agent.js")       (Join-Path $stage "agent")
+Copy-Item (Join-Path $root "agent\selfhost-deploy.js") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "agent\input-helper.ps1") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "agent\audio-helper.ps1") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "agent\host-window.ps1") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "public\index.html")    (Join-Path $stage "public")
 Copy-Item (Join-Path $root "public\theme.css")     (Join-Path $stage "public")
 Copy-Item (Join-Path $root "public\app.js")        (Join-Path $stage "public")
+
+# Worker source + wrangler config, so agent\selfhost-deploy.js can upload a
+# private copy for one user without GitHub. config.json is NOT copied -- the
+# clean template is written below instead, so no key ever ships in the zip.
+New-Item -ItemType Directory -Path (Join-Path $stage "src") -Force | Out-Null
+Copy-Item (Join-Path $root "src\index.js")         (Join-Path $stage "src")
+Copy-Item (Join-Path $root "wrangler.jsonc")       $stage
 
 # --- bundled dependency: ws --------------------------------------------------
 # The agent's ONLY external dependency. It is pure JavaScript (no build

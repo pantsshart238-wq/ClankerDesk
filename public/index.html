@@ -82,9 +82,10 @@
        with a DEPLOY_REPO_URL -- nobody ever sees a button that goes nowhere. -->
   <section id="selfHostCard" class="feature-card self-host" hidden>
     <p class="f-title">Run your own relay</p>
-    <p class="f-body">Don't want to share this one? Deploy your own copy in a couple of clicks — it runs on your own Cloudflare account, so your accounts, your PCs and your free-tier allowance stay entirely yours.</p>
-    <p class="f-body self-host-steps"><b>1.</b> Click below and sign in to Cloudflare (or make a free account). &nbsp;<b>2.</b> Paste any random string for <code>ACCOUNT_SECRET</code> — generate one with <code>node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"</code>. &nbsp;<b>3.</b> Deploy. Then set <code>"relayUrl"</code> in your <code>config.json</code> to <code>wss://YOUR-NAME.workers.dev/ws</code>.</p>
-    <p class="f-body"><a id="selfHostBtn" class="nav-btn primary" href="#" target="_blank" rel="noopener">Deploy your own with Cloudflare</a></p>
+    <p class="f-body">Don't want to share this one? Run your own copy on your own Cloudflare account — your accounts, your PCs and your free-tier allowance stay entirely yours.</p>
+    <p class="f-body self-host-steps"><b>Easiest — no GitHub needed.</b> On this PC, open PowerShell in the ClankerDesk folder and run:<br /><code>node agent\selfhost-deploy.js</code><br />It walks you through making a free Cloudflare API token, uploads your own Worker, and writes the new address into <code>config.json</code> for you. Your agent keeps streaming the whole time.</p>
+    <p class="f-body self-host-steps"><b>Or deploy in the browser</b> — Cloudflare hosts it for you, but it clones the source into a GitHub account, so you'd need one of those too.</p>
+    <p class="f-body"><a id="selfHostBtn" class="nav-btn primary" href="#" target="_blank" rel="noopener">Deploy in the browser</a></p>
   </section>
 
   <section class="hero-art" aria-hidden="true">
