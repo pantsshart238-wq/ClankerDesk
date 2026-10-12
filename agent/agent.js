@@ -1953,24 +1953,96 @@ function injectBeforeLast(html, needle, injection) {
   return idx === -1 ? html : html.slice(0, idx) + injection + html.slice(idx);
 }
 
-function renderViewerHtml(raw, remoteAddr) {
+// Add an ATTRIBUTE to an existing tag, rather than injecting a second copy of
+// the tag. The previous version did
+//     injectBeforeLast(html, '<input id="relayUrl"', '<input id="relayUrl" value="X"')
+// which produced the malformed
+//     <input id="relayUrl" value="X"<input id="relayUrl" type="text" ... />
+// Browsers only survived that because HTML keeps the FIRST of a duplicated
+// attribute -- one stray ">" away from a real failure. This splices the
+// attribute into the real tag instead.
+function injectAttrIntoTag(html, tagNeedle, attrNeedle, attribute) {
+  const tagAt = html.lastIndexOf(tagNeedle);
+  if (tagAt === -1) return html;
+  const attrAt = html.indexOf(attrNeedle, tagAt);
+  if (attrAt === -1) return html;
+  const insertAt = attrAt + attrNeedle.length;
+  return html.slice(0, insertAt) + " " + attribute + html.slice(insertAt);
+}
+
+// The public GitHub repo, read from wrangler.jsonc. The Worker injects this as
+// window.CD_DEPLOY_REPO; the agent did not, which is why the "Run your own
+// relay" card and the "Host your own" pill were missing on the quick-tunnel
+// link while present on the main site -- the same page looked different for no
+// reason a user could see. wrangler.jsonc ships inside every bundle, so this
+// needs no extra configuration and works offline.
+const DEPLOY_REPO = (() => {
+  try {
+    const p = path.join(__dirname, "..", "wrangler.jsonc");
+    if (!fs.existsSync(p)) return "";
+    // It is JSONC, so comments have to come out before JSON.parse.
+    const text = fs.readFileSync(p, "utf8")
+      .replace(/^\s*\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/,(\s*[}\]])/g, "$1");
+    const cfg = JSON.parse(text);
+    const v = (cfg && cfg.vars && cfg.vars.DEPLOY_REPO_URL) || "";
+    return typeof v === "string" ? v.trim() : "";
+  } catch (_) {
+    // No repo configured: the card stays hidden, exactly as on a fresh deploy.
+    return "";
+  }
+})();
+
+const LOOPBACK_ADDRS = ["127.0.0.1", "::1", "::ffff:127.0.0.1"];
+
+// Is this request from THIS machine's own browser?
+//
+// The socket address is NOT enough on its own. cloudflared runs on this same
+// PC and connects to 127.0.0.1, so every visitor arriving through the
+// quick-tunnel link looks like loopback -- which meant the account's private
+// relayToken and this PC's PIN were being handed to anyone with the
+// trycloudflare URL. The Host header is what actually distinguishes them:
+// "localhost:8000" is this PC's own browser, "....trycloudflare.com" is the
+// internet.
+//
+// Forwarding headers are a second, independent tell: a request that went
+// through a proxy carries them, and a genuine local browser never does.
+function isLocalViewerRequest(req) {
+  if (!LOOPBACK_ADDRS.includes(req.socket.remoteAddress)) return false;
+  if (req.headers["cf-connecting-ip"] || req.headers["x-forwarded-for"]) return false;
+  const host = String(req.headers.host || "").toLowerCase().replace(/:\d+$/, "");
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+}
+
+function renderViewerHtml(raw, local) {
   let html = raw;
+
+  // The same window.CD_DEPLOY_REPO the Cloudflare Worker injects. Without it
+  // app.js leaves the "Run your own relay" card and the "Host your own" pill
+  // hidden -- so the quick-tunnel link showed a visibly different page from the
+  // main site even though both serve the identical index.html.
+  if (DEPLOY_REPO) {
+    html = injectBeforeLast(html, "</head>",
+      `<script>window.CD_DEPLOY_REPO=${JSON.stringify(DEPLOY_REPO)};</script>\n`);
+  }
+
   // Pre-fill the relay address (NOT the token). Falls back to the page as-is.
   if (RELAY_URL.startsWith("wss://") && !RELAY_URL.includes("your-worker")) {
-    html = injectBeforeLast(html, '<input id="relayUrl"', `<input id="relayUrl" value="${escapeHtmlAttr(RELAY_URL)}"`);
+    html = injectAttrIntoTag(html, '<input id="relayUrl"', 'id="relayUrl"',
+      `value="${escapeHtmlAttr(RELAY_URL)}"`);
   }
   // Tell the page it is served by the agent itself, so it connects straight back to it (/ws).
   if (DIRECT_OK) {
     html = injectBeforeLast(html, "</head>", "<script>window.AGENT_DIRECT = true;</script>\n");
-    // Token pre-fill -- ONLY for requests coming from this very PC (loopback).
-    // The viewer server binds to 127.0.0.1 and is unreachable from other
-    // machines, so on this PC the page can log in with zero typing. Visitors
-    // arriving through a tunnel never get this (their requests don't look
-    // like loopback), so the token never leaves this machine.
-    const loopback = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddr);
-    if (loopback) {
-      html = injectBeforeLast(html, '<input id="token"', `<input id="token" value="${escapeHtmlAttr(RELAY_TOKEN)}"`);
-      // The Info panel shows the host their own device name + PIN (loopback only),
+    // Token + PIN pre-fill -- ONLY for this PC's own browser. It is the
+    // account's private key, so it must never reach a tunnel visitor: they
+    // have their own PIN card for that, which is the entire point of the
+    // link. See isLocalViewerRequest for why the socket address alone lies.
+    if (local) {
+      html = injectAttrIntoTag(html, '<input id="token"', 'id="token"',
+        `value="${escapeHtmlAttr(RELAY_TOKEN)}"`);
+      // The Info panel shows the host their own device name + PIN (local only),
       // and the Devices dashboard needs the relay's address to list PCs.
       html = injectBeforeLast(html, "</head>", `<script>window.AGENT_DEVICE = ${JSON.stringify({ name: DEVICE_NAME, pin: DEVICE.pin })};window.AGENT_RELAY = ${JSON.stringify(USE_RELAY ? RELAY_URL : "")};</script>\n`);
     }
@@ -2002,7 +2074,7 @@ function startViewerServer() {
       // GET/HEAD guard: POST only, loopback only -- a browser prefetch hitting
       // a GET link must never stop the agent.
       if (urlPath === "/host-stop" && req.method === "POST" &&
-          ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) {
+          isLocalViewerRequest(req)) {
         res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Connection": "close" });
         res.end("stopping");
         console.log("[ui] stop requested from the ClankerDesk window -- shutting down");
@@ -2029,8 +2101,10 @@ function startViewerServer() {
         return;
       }
       // The agent's own UI: a host panel (status, PIN, links). Local only --
-      // it hands out this device's PIN, so never answer it off this PC.
-      const panelLocal = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress);
+      // it hands out this device's PIN, so never answer it off this PC, and
+      // never to someone who arrived through the tunnel (see the note on
+      // isLocalViewerRequest: cloudflared's requests look loopback).
+      const panelLocal = isLocalViewerRequest(req);
       if (urlPath === "/host-status" && panelLocal) {
         const body = Buffer.from(JSON.stringify({
           deviceName: DEVICE_NAME,
@@ -2098,7 +2172,7 @@ function startViewerServer() {
             res.end("File not found.");
             return;
           }
-          const body = Buffer.from(staticFile ? raw : renderViewerHtml(raw, req.socket.remoteAddress), "utf8");
+          const body = Buffer.from(staticFile ? raw : renderViewerHtml(raw, isLocalViewerRequest(req)), "utf8");
           const headers = {
             "Content-Type": staticFile === "theme.css" ? "text/css; charset=utf-8" : staticFile === "app.js" ? "application/javascript; charset=utf-8" : "text/html; charset=utf-8",
             "Content-Length": body.length,
