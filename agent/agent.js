@@ -104,45 +104,48 @@ function relayApiBase() {
   return RELAY_URL.replace(/^wss:/, "https:").replace(/\/ws\/?$/, "").replace(/\/+$/, "");
 }
 
-function promptLine(question) {
+// One prompt implementation for BOTH questions. They have to share it: mixing
+// readline (username) with a hand-rolled raw-mode reader (password) left stdin
+// in a state where the password prompt simply ignored every keystroke, so
+// people could type a username but not a password.
+// With hideInput, the question is printed but everything typed after it is
+// swallowed -- the password never appears on screen, in logs, or anywhere else.
+function ask(question, hideInput) {
   return new Promise((resolve) => {
-    const rl = require("readline").createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(question, (a) => { rl.close(); resolve(a.trim()); });
-  });
-}
+    const rl = require("readline").createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
+    });
 
-// Passwords never echo, and never get logged or written anywhere but the
-// request body.
-function promptHidden(question) {
-  const ENTER = 10, CR = 13, BACKSPACE = 8, CTRL_D = 4;
-  return new Promise((resolve) => {
-    const input = process.stdin;
-    const output = process.stdout;
-    output.write(question);
-    let typed = "";
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      input.removeListener("data", onData);
-      if (input.setRawMode) input.setRawMode(false);
-      output.write("\n");
-      resolve(typed);
-    };
-    function onData(chunk) {
-      for (const ch of String(chunk)) {
-        const code = ch.charCodeAt(0);
-        if (code === ENTER || code === CR || code === CTRL_D) return finish();
-        if (code === BACKSPACE) typed = typed.slice(0, -1);
-        else if (code >= 32) typed += ch;
-      }
+    if (hideInput) {
+      const realWrite = rl._writeToOutput;
+      let shownQuestion = false;
+      rl._writeToOutput = function (chunk) {
+        if (!shownQuestion) {
+          shownQuestion = true;
+          if (realWrite) realWrite.call(this, chunk); // the question itself
+        }
+        // everything after it is the user's typing: never echo it
+      };
     }
-    if (input.setRawMode) input.setRawMode(true);
-    input.resume();
-    input.setEncoding("utf8");
-    input.on("data", onData);
-    input.on("end", finish);
-    input.on("close", finish);
+
+    let answered = false;
+    const finish = (value) => {
+      if (answered) return;
+      answered = true;
+      try { rl.close(); } catch (e) { /* already closing */ }
+      resolve(value);
+    };
+
+    // Ctrl+C at the prompt means "never mind", not a crash.
+    rl.on("SIGINT", () => finish(""));
+    rl.on("close", () => finish(""));
+
+    rl.question(question, (answer) => {
+      if (hideInput) process.stdout.write("\n");
+      finish(answer.trim());
+    });
   });
 }
 
@@ -169,7 +172,7 @@ async function provisionAccount() {
   console.error("  Already made one? Log in with the same details instead.");
   console.error("");
 
-  const user = await promptLine("  Username: ");
+  const user = await ask("  Username: ", false);
   if (!user) {
     console.error("  No username given -- nothing was changed.");
     return false;
@@ -179,7 +182,7 @@ async function provisionAccount() {
     console.error("  Got: \"" + user + "\"");
     return false;
   }
-  const pass = await promptHidden("  Password: ");
+  const pass = await ask("  Password: ", true);
   if (!pass) {
     console.error("  No password given -- nothing was changed.");
     return false;
@@ -2437,66 +2440,71 @@ process.on("SIGTERM", () => { killChildren(); process.exit(0); });
 
 try { startViewerServer(); } catch (e) { console.error("[viewer] failed to start:", e.message, "(streaming is unaffected)"); }
 
-ensureAudioRouting();
-// In loopback mode the mic always uses the never-mirror talk-mute (its
-// voice lands in the captured main mix no matter which cable carries it),
-// so the second-cable scan has nothing to decide -- skip it there.
-if (!isLoopbackAudio()) detectMicCable();
-startInputHelper();
+// Startup order matters here. Account setup runs FIRST, while this console is
+// still quiet: the input helper and the audio/mic scans all write into the very
+// same window (their stdout is inherited), and anything printing while someone
+// is typing at a prompt scrambles the line -- that's what made the "Username:"
+// question vanish or eat keystrokes. Ask first, then start the noisy parts.
+(async () => {
 if (USE_RELAY) {
-  // Async IIFE, not top-level await: this file is CommonJS. It waits for the
-  // username/password below before connecting, so nothing can throw at
-  // require() time and a cancelled setup still connects the relay normally.
-  (async () => {
-    const forceSetup = process.argv.includes("--setup") || process.argv.includes("-s");
-    if (forceSetup || looksLikePlaceholderToken(RELAY_TOKEN)) {
-      // Fresh install: make the account right here. A username and a password
-      // is the whole setup -- no website, no copy-pasting a key into Notepad.
-      // Falls back to printed instructions when there's no terminal to type
-      // into (started as a service, output piped somewhere).
-      let linked = false;
-      if (forceSetup || process.stdin.isTTY) {
-        try {
-          if (forceSetup && !looksLikePlaceholderToken(RELAY_TOKEN)) {
-            console.error("  This PC is already linked. Type the account you want to use:");
-          }
-          linked = await provisionAccount();
-        } catch (e) {
-          console.error("[setup] could not finish setup: " + e.message);
+  const forceSetup = process.argv.includes("--setup") || process.argv.includes("-s");
+  if (forceSetup || looksLikePlaceholderToken(RELAY_TOKEN)) {
+    // Fresh install: make the account right here. A username and a password
+    // is the whole setup -- no website, no copy-pasting a key into Notepad.
+    // Falls back to printed instructions when there's no terminal to type
+    // into (started as a service, output piped somewhere).
+    let linked = false;
+    if (forceSetup || process.stdin.isTTY) {
+      try {
+        if (forceSetup && !looksLikePlaceholderToken(RELAY_TOKEN)) {
+          console.error("  This PC is already linked. Type the account you want to use:");
         }
-      }
-      if (!linked) {
-        console.error("");
-        console.error("  ============== ONE THING TO DO FIRST ==============");
-        console.error("");
-        console.error("  This PC is not linked to your account yet, so it will NOT");
-        console.error("  appear in your dashboard and nobody can connect to it.");
-        console.error("");
-        console.error("  Easiest: close this and re-open ClankerDesk, then type a");
-        console.error("  username and password when it asks.");
-        console.error("");
-        console.error("  Or do it by hand:");
-        console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
-        console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
-        console.error("    3. Open config.json in this folder with Notepad.");
-        console.error("    4. Replace the text on the \"relayToken\" line with that key.");
-        console.error("    5. Save, then close and re-open ClankerDesk.");
-        console.error("");
-        const local = localPageUrl();
-        if (local) {
-          console.error("  Everything else works without this: the local page at");
-          console.error("  " + local + " is live now.");
-        } else {
-          console.error("  Everything else works without this -- relaying is the only");
-          console.error("  thing that needs the key.");
-        }
-        console.error("  ====================================================");
-        console.error("");
+        linked = await provisionAccount();
+      } catch (e) {
+        console.error("[setup] could not finish setup: " + e.message);
       }
     }
-    connectRelay();
-  })();
+    if (!linked) {
+    console.error("");
+    console.error("  ============== ONE THING TO DO FIRST ==============");
+    console.error("");
+    console.error("  This PC is not linked to your account yet, so it will NOT");
+    console.error("  appear in your dashboard and nobody can connect to it.");
+    console.error("");
+    console.error("  Easiest: close this and re-open ClankerDesk, then type a");
+    console.error("  username and password when it asks.");
+    console.error("");
+    console.error("  Or do it by hand:");
+    console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
+    console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
+    console.error("    3. Open config.json in this folder with Notepad.");
+    console.error("    4. Replace the text on the \"relayToken\" line with that key.");
+    console.error("    5. Save, then close and re-open ClankerDesk.");
+    console.error("");
+    const local = localPageUrl();
+    if (local) {
+      console.error("  Everything else works without this: the local page at");
+      console.error("  " + local + " is live now.");
+    } else {
+      console.error("  Everything else works without this -- relaying is the only");
+      console.error("  thing that needs the key.");
+    }
+    console.error("  ====================================================");
+    console.error("");
+      }
+    }
 } else console.log("[relay] relay connection is off (USE_RELAY=0 or no RELAY_URL set) -- direct viewers only");
+
+  // Now that nobody is typing, let the chatty parts talk.
+  ensureAudioRouting();
+  // In loopback mode the mic always uses the never-mirror talk-mute (its
+  // voice lands in the captured main mix no matter which cable carries it),
+  // so the second-cable scan has nothing to decide -- skip it there.
+  if (!isLoopbackAudio()) detectMicCable();
+  startInputHelper();
+
+  if (USE_RELAY) connectRelay();
+})();
 
 process.on("SIGINT", () => {
   console.log("Shutting down");
