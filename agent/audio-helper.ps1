@@ -283,7 +283,13 @@ public static class CdLoopback {
       }
       System.Threading.Thread.Sleep(5);
     }
-    Console.Error.WriteLine("[loopback] listening to '" + label + "' (48000 Hz stereo s16le on stdout)");
+    // The endpoint id is printed too, and agent.js caches THAT rather than the
+    // label. Windows regularly exposes two different render endpoints with the
+    // same friendly name (both called "Speakers"), and -LoopbackDevice matches
+    // on a name prefix -- so caching the label sent the next audio session
+    // back to whichever "Speakers" happened to sort first, which is frequently
+    // not the one that had just been proven to carry audio.
+    Console.Error.WriteLine("[loopback] listening to '" + label + "' [" + endpointId + "] (48000 Hz stereo s16le on stdout)");
     bool neverProven = !proven; // committed by acceptSilent, not by real audio
     while (true) {
       uint packet;
@@ -376,7 +382,14 @@ if ($LoopbackMode) {
     $endpoints = Get-AudioEndpoints
     $candidates = @()
     if ($LoopbackDevice) {
-      $namedDev = $endpoints | Where-Object { $_.Name -like "$LoopbackDevice*" } | Select-Object -First 1
+      # An endpoint ID is matched exactly; only then fall back to the friendly
+      # name prefix. config.json and the agent's own cache both come through
+      # here, and they mean different things: a config value is a name a human
+      # typed, whereas the cache is an ID because names are not unique.
+      $namedDev = $endpoints | Where-Object { $_.Id -eq $LoopbackDevice } | Select-Object -First 1
+      if (-not $namedDev) {
+        $namedDev = $endpoints | Where-Object { $_.Name -like "$LoopbackDevice*" } | Select-Object -First 1
+      }
       if ($namedDev) { $candidates += $namedDev }
       else { [Console]::Error.WriteLine("output device '" + $LoopbackDevice + "' not found; trying the default output instead") }
     }
@@ -391,13 +404,18 @@ if ($LoopbackMode) {
     }
     $firstInited = $null
     foreach ($cand in $candidates) {
-      [Console]::Error.WriteLine("[loopback] trying '" + $cand.Name + "'")
+      # Show the endpoint id too. Windows quite happily exposes two different
+      # render endpoints with the SAME friendly name (both "Speakers"), so the
+      # name alone made the log read as if one device were retried twice --
+      # which looked like a bug in the walk rather than the hardware.
+      $shortId = ($cand.Id -split '\.')[-1]
+      [Console]::Error.WriteLine("[loopback] trying '" + $cand.Name + "'  [" + $shortId + "]")
       try {
         [CdLoopback]::Run($cand.Id, $false, $cand.Name)
         exit 0
       } catch {
         $why = $_.Exception.Message
-        [Console]::Error.WriteLine("[loopback] '" + $cand.Name + "': " + $why)
+        [Console]::Error.WriteLine("[loopback] '" + $cand.Name + "' [" + $shortId + "]: " + $why)
         if (-not $firstInited -and $why -like "*silent*") { $firstInited = $cand }
       }
     }

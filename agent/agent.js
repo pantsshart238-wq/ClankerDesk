@@ -469,14 +469,27 @@ function startFfmpeg() {
   // dump if ffmpeg exits unexpectedly (very useful for ddagrab failures,
   // which are new/less battle-tested than gdigrab was).
   let stderrTail = "";
+  // Dedupe: ffmpeg reprints a message on every restart attempt, and a broken
+  // encoder produces the same driver error dozens of times. Say it once.
+  const saidStderr = new Set();
   proc.stderr.on("data", (chunk) => {
     const text = chunk.toString();
     stderrTail = (stderrTail + text).slice(-4000);
-    // TEMP DIAGNOSTIC: print every non-progress line raw, since gfxcapture's
-    // failure wording is unknown and might not match /error|invalid|failed/.
-    // A normal progress line looks like "frame=  30 fps=... "; anything else
-    // is worth seeing in full while we track this down.
-    if (!/^frame=\s*\d/.test(text.trim())) console.error("[ffmpeg:raw]", text);
+    // This used to print EVERY non-progress line while hunting a capture bug,
+    // which meant every healthy start dumped ffmpeg's entire 20-line banner
+    // and its full --enable-* configuration string into the user's window.
+    // Only problems are worth interrupting anyone for now; the full text is
+    // still captured in stderrTail and printed if ffmpeg exits non-zero.
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t) continue;
+      if (/^frame=\s*\d/.test(t)) continue;                    // progress
+      if (!/error|invalid|failed|failure|cannot|unable|unsupported|no such|not (found|supported|available|compiled)|exceeds|refused|denied/i.test(t)) continue;
+      const key = t.slice(0, 160);
+      if (saidStderr.has(key)) continue;
+      saidStderr.add(key);
+      console.error("[ffmpeg] " + t);
+    }
   });
 
   proc.on("exit", (code, sig) => {
@@ -850,7 +863,13 @@ function startFfmpegAudio() {
         if (!s) return;
         const m = s.match(/\[loopback\] listening to '(.+?)'/);
         if (m) {
-          loopbackDeviceCache = m[1]; // straight-line the next audio session
+          // Cache the endpoint ID when the helper prints one, and prefer it over the
+          // friendly name. Windows routinely exposes two render endpoints
+          // sharing a single name (both called "Speakers"), and the helper
+          // matches -LoopbackDevice by name prefix -- so a name-based cache
+          // pinned every later session to whichever sorted first, which is
+          // often not the one that had just been proven to carry audio.
+          loopbackDeviceCache = m[2] || m[1]; // straight-line the next audio session
           console.error("[loopback] sound source: " + m[1]);
           startFfmpeg(); // the walk found carrying audio -- encode it
           return;
