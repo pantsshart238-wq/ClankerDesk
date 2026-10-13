@@ -32,7 +32,7 @@ Copy-Item (Join-Path $root "agent\agent.js")       (Join-Path $stage "agent")
 # dispatcher needs, and unzipping the wrong zip on the wrong OS still works.
 New-Item -ItemType Directory -Path (Join-Path $stage "agent\helpers") -Force | Out-Null
 foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
-                  "platform-linux.js", "platform-macos.js")) {
+                  "platform-linux.js", "platform-macos.js", "host-panel.js")) {
   Copy-Item (Join-Path $root "agent\$pf") (Join-Path $stage "agent")
 }
 foreach ($hf in @("input-linux.js", "input-macos.js")) {
@@ -184,12 +184,13 @@ function New-UnixBundle {
 
   Copy-Item (Join-Path $root "Setup.sh")                $u
   Copy-Item (Join-Path $root "Start-Agent.sh")          $u
+  Copy-Item (Join-Path $root "ClankerDesk.svg")         $u
   Copy-Item (Join-Path $root "agent\agent.js")          (Join-Path $u "agent")
   # Every platform file and both input helpers, exactly like the Windows
   # bundle -- platform.js conditionally requires its implementation, so the
   # complete set is what keeps each bundle self-contained.
   foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
-                    "platform-linux.js", "platform-macos.js")) {
+                    "platform-linux.js", "platform-macos.js", "host-panel.js")) {
     Copy-Item (Join-Path $root "agent\$pf") (Join-Path $u "agent")
   }
   foreach ($hf in @("input-linux.js", "input-macos.js")) {

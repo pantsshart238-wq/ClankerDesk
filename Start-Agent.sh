@@ -55,4 +55,28 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
   echo
 fi
 
+# ---- Open the control panel -------------------------------------------------
+# The Linux/macOS equivalent of the ClankerDesk window on Windows: a page with
+# this PC's PIN, its connection status and a Stop button. The agent serves it on
+# its own port, so wait a moment for that port to answer before asking the
+# browser to load it, and never fail the launch if it cannot.
+PORT="${VIEWER_PORT:-8000}"
+if [ "${CLANKERDESK_NO_PANEL:-0}" != "1" ]; then
+  (
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+      sleep 1
+      if command -v curl >/dev/null 2>&1; then
+        curl -sf -o /dev/null "http://127.0.0.1:$PORT/host" && break
+      else
+        break
+      fi
+    done
+    URL="http://127.0.0.1:$PORT/host"
+    if   command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 &
+    elif command -v gio >/dev/null 2>&1;       then gio open "$URL" >/dev/null 2>&1 &
+    elif command -v open >/dev/null 2>&1;      then open "$URL" >/dev/null 2>&1 &
+    fi
+  ) &
+fi
+
 exec node agent/agent.js

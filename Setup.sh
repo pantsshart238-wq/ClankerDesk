@@ -139,6 +139,95 @@ fi
 
 chmod +x Start-Agent.sh 2>/dev/null
 
+# ===========================================================================
+#  App launcher
+# ===========================================================================
+# From here on it should be one click, like Windows: a ClankerDesk icon in the
+# app menu that starts the agent and opens the control panel (which shows the
+# PIN). Installed to the user's own menu -- no root, nothing system-wide.
+APPS="$HOME/.local/share/applications"
+BIN="$HOME/.local/bin"
+mkdir -p "$APPS" "$BIN"
+ICON_SRC="$PWD/ClankerDesk.svg"
+ICON_DST="$HOME/.local/share/icons/hicolor/scalable/apps/ClankerDesk.svg"
+
+if [ -f "$ICON_SRC" ]; then
+  mkdir -p "$(dirname "$ICON_DST")" 2>/dev/null
+  cp "$ICON_SRC" "$ICON_DST" 2>/dev/null
+fi
+
+# The real work goes in a small script rather than inline in the .desktop Exec
+# line: the desktop-entry spec has no quoting rules for single quotes, so a
+# quoted `bash -c '...'` there silently passes the quotes through as literal
+# characters and the launcher never runs. A script file has no such problem,
+# and it lets the launcher be smart about a second click.
+AGENT_DIR="$PWD"
+cat > "$BIN/clankerdesk" <<LAUNCHER
+#!/usr/bin/env bash
+# ClankerDesk launcher (created by Setup.sh).
+cd "$AGENT_DIR" || exit 1
+
+PORT="\${VIEWER_PORT:-8000}"
+PANEL="http://127.0.0.1:\$PORT/host"
+
+# Already running? Then do NOT start a second agent competing for the relay
+# and the capture device -- just bring the panel back up, which is what you
+# expect when you click an app icon twice.
+if command -v curl >/dev/null 2>&1 && curl -sf -o /dev/null "\$PANEL" 2>/dev/null; then
+  if   command -v xdg-open >/dev/null 2>&1; then xdg-open "\$PANEL" >/dev/null 2>&1 &
+  elif command -v gio >/dev/null 2>&1;       then gio open "\$PANEL" >/dev/null 2>&1 &
+  elif command -v open >/dev/null 2>&1;      then open "\$PANEL" >/dev/null 2>&1 &
+  fi
+  exit 0
+fi
+
+./Start-Agent.sh
+LAUNCHER
+chmod +x "$BIN/clankerdesk" 2>/dev/null
+
+cat > "$APPS/clankerdesk.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=ClankerDesk
+GenericName=Remote Desktop
+Comment=Share this PC's screen, mouse and keyboard
+Exec="$BIN/clankerdesk"
+Icon=ClankerDesk
+Terminal=true
+Categories=Utility;RemoteAccess;
+Keywords=remote desktop;screen share;clankerdesk;
+StartupNotify=false
+DESKTOP
+chmod +x "$APPS/clankerdesk.desktop" 2>/dev/null
+
+# Also drop it on the Desktop. GNOME/KDE will not run a .desktop straight from
+# the Desktop until it is trusted, so say so rather than leaving them clicking
+# a dead icon.
+DESKTOP_DIR="$HOME/Desktop"
+DESKTOP_MADE=0
+if [ -d "$DESKTOP_DIR" ] && [ -w "$DESKTOP_DIR" ]; then
+  cp "$APPS/clankerdesk.desktop" "$DESKTOP_DIR/ClankerDesk.desktop" 2>/dev/null && chmod +x "$DESKTOP_DIR/ClankerDesk.desktop" 2>/dev/null && DESKTOP_MADE=1
+fi
+
+bold ""
+bold "  ============================"
+bold "    Launcher installed"
+bold "  ============================"
+bold ""
+say "ClankerDesk is now in your app menu -- press the Super key and type"
+say "\"ClankerDesk\". That is the one-click way from now on: it starts the"
+say "agent and opens a page showing this PC's PIN."
+if [ "$DESKTOP_MADE" = "1" ]; then
+  say ""
+  say "There is also an icon on your Desktop. If double-clicking it does"
+  say "nothing, right-click it and choose \"Allow Launching\" -- that is a"
+  say "security feature of GNOME and KDE, not a broken download."
+fi
+say ""
+say "This panel shows your PIN, so it only ever opens on this PC."
+say "To share it with someone on the internet, use the public link instead"
+say "(it rotates every time you start the agent)."
+
 bold ""
 bold "  ============================================"
 bold "    Setup complete"

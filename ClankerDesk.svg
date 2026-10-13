@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a8bf5"/>
+      <stop offset="1" stop-color="#2f6fe4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- the one bold C, as a thick ring with a gap on the right -->
+  <path d="M84 46.5a30 30 0 1 0 0 35" fill="none" stroke="#ffffff" stroke-width="17" stroke-linecap="round"/>
+  <!-- cursor: the thing this whole app is for -->
+  <path d="M70 62 L70 92 L80.5 82.5 L87.5 98 L95.5 94.5 L88.5 79.5 L101 79 Z"
+        fill="#ffffff" stroke="#2f6fe4" stroke-width="4.5" stroke-linejoin="round"/>
+</svg>
