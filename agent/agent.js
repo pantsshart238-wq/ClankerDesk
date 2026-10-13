@@ -180,34 +180,18 @@ function saveRelayTokenToConfig(token) {
   }
 }
 
-async function provisionAccount() {
-  console.error("");
-  console.error("  ============== SET THIS PC UP ==============");
-  console.error("");
-  console.error("  Make an account for yourself on this relay. One username");
-  console.error("  and one password -- that is the whole setup.");
-  console.error("");
-  console.error("  Already made one? Log in with the same details instead.");
-  console.error("");
-
-  const user = await ask("  Username: ", false);
-  if (!user) {
-    console.error("  No username given -- nothing was changed.");
-    return false;
+// Sign up (or log in) with the relay and return the account key.
+// Deliberately does NOT save anything: both callers -- the terminal prompt and
+// the control panel's Link form -- decide for themselves when to persist it,
+// so the panel can answer with JSON without half-writing config.json.
+async function linkAccount(user, pass) {
+  user = String(user || "").trim();
+  if (!/^[a-z0-9_-]{3,32}$/i.test(user)) {
+    return { ok: false, error: "Usernames are 3-32 characters: letters, numbers, _ or -" };
   }
-  if (!/^[a-z0-9_-]{3,32}$/.test(user.toLowerCase())) {
-    console.error("  Usernames are 3-32 characters: letters, numbers, _ or -");
-    console.error("  Got: \"" + user + "\"");
-    return false;
-  }
-  const pass = await ask("  Password: ", true);
-  if (!pass) {
-    console.error("  No password given -- nothing was changed.");
-    return false;
-  }
-  if (pass.length < 8) {
-    console.error("  Passwords need at least 8 characters (that was " + pass.length + ").");
-    return false;
+  if (!pass) return { ok: false, error: "No password given." };
+  if (String(pass).length < 8) {
+    return { ok: false, error: "Passwords need at least 8 characters." };
   }
 
   const post = async (p) => {
@@ -223,28 +207,58 @@ async function provisionAccount() {
     }
   };
 
-  console.error("  Signing up...");
   let res = await post("/api/signup");
-
   // "already taken" just means this person has an account here: log them in
   // instead of making them dig out which key they pasted last time.
   if (res.status === 409 || /already taken/i.test((res.json && res.json.error) || "")) {
-    console.error("  That username exists -- logging in instead...");
     res = await post("/api/login");
   }
 
   if (!res.json || !res.json.ok || !res.json.token) {
-    const why = (res.json && res.json.error) || "unknown error";
-    console.error("");
-    console.error("  Could not set this PC up: " + why);
+    let why = (res.json && res.json.error) || "unknown error";
     if (/too many signups/i.test(why)) {
-      console.error("  (5 signups per hour per network -- wait a bit and try again)");
+      why += " (5 signups per hour per network -- wait a bit and try again)";
     }
+    return { ok: false, error: why };
+  }
+  return { ok: true, token: res.json.token, user: res.json.user || user };
+}
+
+async function provisionAccount() {
+  console.error("");
+  console.error("  ============== SET THIS PC UP ==============");
+  console.error("");
+  console.error("  Make an account for yourself on this relay. One username");
+  console.error("  and one password -- that is the whole setup.");
+  console.error("");
+  console.error("  Already made one? Log in with the same details instead.");
+  console.error("");
+  console.error("  (You can also do this later from the ClankerDesk panel in");
+  console.error("   your browser -- press Super and open ClankerDesk.)");
+  console.error("");
+
+  const user = await ask("  Username: ", false);
+  if (!user) {
+    console.error("  No username given -- nothing was changed.");
+    console.error("  Open the ClankerDesk panel in your browser to finish setup.");
+    return false;
+  }
+  const pass = await ask("  Password: ", true);
+  if (!pass) {
+    console.error("  No password given -- nothing was changed.");
+    return false;
+  }
+
+  console.error("  Signing up...");
+  const res = await linkAccount(user, pass);
+  if (!res.ok) {
+    console.error("");
+    console.error("  Could not set this PC up: " + res.error);
     console.error("");
     return false;
   }
 
-  RELAY_TOKEN = res.json.token;
+  RELAY_TOKEN = res.token;
   process.env.RELAY_TOKEN = RELAY_TOKEN;
   DIRECT_OK = RELAY_TOKEN.length >= 16;
   saveRelayTokenToConfig(RELAY_TOKEN);
@@ -376,7 +390,7 @@ function startFfmpeg() {
 }
 
 // Switch capture to another QUALITY_PRESETS entry at runtime -- the viewer's
-// 🎞️ quality button sends {type:"set_quality"}. If capture is running, the
+// Ã°Å¸Å½Å¾Ã¯Â¸Â quality button sends {type:"set_quality"}. If capture is running, the
 // ffmpeg exit handler above relaunches it ~300ms later through
 // launchFfmpeg() with the new preset (the same path restart_capture uses, so
 // no restart races). When capture is idle (watchdog between viewers) the
@@ -494,11 +508,20 @@ function encodeAccessUnit(nals) {
 // dshow capture device name (e.g. "CABLE Output (VB-Audio Virtual Cable)")
 // for the old explicit-capture mode.
 const AUDIO_DEVICE = process.env.AUDIO_DEVICE || "";
-// True = the sound stream is a WASAPI loopback of whatever the PC plays
-// (the helper is present and no explicit capture device is configured).
+// True = the sound stream is a capture of whatever the PC is playing (nothing
+// is captured from an explicit device).
 // One predicate, used by both the audio pipeline and the mic logic.
+//
+// This used to test for audio-helper.ps1, which is Windows-only -- and the
+// Unix bundles deliberately do not ship it. So on Linux and macOS it answered
+// false, which meant the mic skipped the never-mirror talk-mute path and went
+// hunting for a VB-CABLE that cannot exist there. Both of those platforms
+// capture the monitor source directly, so "no explicit device" means loopback
+// there too.
 function isLoopbackAudio() {
-  return !AUDIO_DEVICE && fs.existsSync(path.join(__dirname, "audio-helper.ps1"));
+  if (AUDIO_DEVICE) return false;
+  if (process.platform === "win32") return fs.existsSync(path.join(__dirname, "audio-helper.ps1"));
+  return true;
 }
 // Last output device that actually carried real audio (the helper announces
 // it as "listening to '<name>'"). The helper's device walk can take ~2s per
@@ -1389,6 +1412,15 @@ function localPageUrl() {
   return "http://localhost:" + port;
 }
 
+// The control panel's own address, for the "one thing to do first" message.
+// 127.0.0.1 rather than localhost on purpose: the panel is gated on a loopback
+// Host header, and some systems resolve localhost to ::1 first.
+function localPanelUrl() {
+  const page = localPageUrl();
+  if (!page) return null;
+  return page.replace("localhost", "127.0.0.1") + "/host";
+}
+
 function connectRelay() {
   const url = `${RELAY_URL}${RELAY_URL.includes("?") ? "&" : "?"}role=agent&token=${encodeURIComponent(RELAY_TOKEN)}` +
     `&device=${encodeURIComponent(DEVICE.deviceId)}&name=${encodeURIComponent(DEVICE_NAME)}&pin=${encodeURIComponent(DEVICE.pin)}`;
@@ -1433,11 +1465,21 @@ function connectRelay() {
       console.error("  Why: " + (why || "your private key is not a real account key."));
       console.error("");
       console.error("  Fix it (takes 20 seconds):");
-      console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
-      console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
-      console.error("    3. Open config.json in this folder with Notepad.");
-      console.error("    4. Replace the text on the \"relayToken\" line with that key.");
-      console.error("    5. Save, then close and re-open ClankerDesk.");
+      // Much easier than editing a file by hand, and identical on every
+      // OS -- so nobody on Linux or macOS is sent hunting for Notepad.
+      const fixPanel = localPanelUrl();
+      if (fixPanel) {
+        console.error("    1. Open this page and type your username and password:");
+        console.error("");
+        console.error("        " + fixPanel);
+        console.error("");
+      } else {
+        console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
+        console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
+        console.error("    3. Open config.json" + (process.platform === "win32" ? " in Notepad" : " in any text editor") + ".");
+        console.error("    4. Replace the text on the \"relayToken\" line with that key.");
+        console.error("    5. Save, then start ClankerDesk again.");
+      }
       console.error("");
       console.error("  (Relaying is off until then -- this PC still works on its own");
       if (localPageUrl()) console.error("   local page, " + localPageUrl() + " )");
@@ -2189,6 +2231,85 @@ function startViewerServer() {
         setTimeout(() => { try { process.exit(0); } catch (_) {} }, 250);
         return;
       }
+
+      // Is this request from THIS machine's own browser? Decided once, up here,
+      // because every route below that hands out the PIN or an account key
+      // needs it, including the POST ones -- which have to sit ABOVE the
+      // 405 guard further down or they never get reached.
+      // See isLocalViewerRequest: cloudflared's requests also arrive from
+      // 127.0.0.1, so the socket address alone would let a tunnel visitor read
+      // this PC's PIN and stop the agent.
+      const panelLocal = isLocalViewerRequest(req);
+
+      // Link this PC to an account from the control panel, instead of making
+      // people type a username and password into a terminal. Local-only for
+      // the same reason as the panel itself: it hands out an account key.
+      if (urlPath === "/host-link" && req.method === "POST" && panelLocal) {
+        const chunks = [];
+        let size = 0;
+        req.on("data", (c) => {
+          size += c.length;
+          if (size > 16 * 1024) { req.destroy(); return; }
+          chunks.push(c);
+        });
+        req.on("end", async () => {
+          const fail = (status, msg) => {
+            try {
+              res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+              res.end(JSON.stringify({ ok: false, error: msg }));
+            } catch (_) { try { res.destroy(); } catch (__) {} }
+          };
+          let body = {};
+          try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); }
+          catch (_) { return fail(400, "Could not read that."); }
+
+          const result = await linkAccount(body.username, body.password);
+          if (!result.ok) return fail(400, result.error);
+
+          RELAY_TOKEN = result.token;
+          process.env.RELAY_TOKEN = RELAY_TOKEN;
+          DIRECT_OK = RELAY_TOKEN.length >= 16;
+          saveRelayTokenToConfig(RELAY_TOKEN);
+          console.log("[setup] this PC linked to @" + result.user + " from the control panel");
+
+          // Get onto the relay immediately -- otherwise the user links the PC
+          // and then waits for a restart before it shows up in their Devices.
+          try { connectRelay(); } catch (e) { console.error("[setup] relay reconnect failed: " + e.message); }
+
+          try {
+            res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+            res.end(JSON.stringify({ ok: true, user: result.user }));
+          } catch (_) { try { res.destroy(); } catch (__) {} }
+        });
+        return;
+      }
+
+      // Forget the stored account key so the panel shows its Link form again.
+      // Deliberately does NOT delete config.json or the device: only the
+      // relayToken line is reset, and only in place, so its // notes survive.
+      if (urlPath === "/host-unlink" && req.method === "POST" && panelLocal) {
+        try {
+          const p = path.join(__dirname, "..", "config.json");
+          if (fs.existsSync(p)) {
+            const raw = fs.readFileSync(p, "utf8");
+            const next = raw.replace(/("relayToken"\s*:\s*)"[^"]*"/, '$1""');
+            if (next !== raw) fs.writeFileSync(p, next);
+          }
+          RELAY_TOKEN = "";
+          process.env.RELAY_TOKEN = "";
+          DIRECT_OK = false;
+          console.log("[setup] account key cleared -- use the panel to link another account");
+          res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          try {
+            res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+          } catch (_) { try { res.destroy(); } catch (__) {} }
+        }
+        return;
+      }
+
       // The account API (sign up / log in / my devices). These live on the
       // Cloudflare Worker, so when this page is reached through the quick-
       // tunnel the relative fetch would land here instead and 404 -- which is
@@ -2215,13 +2336,6 @@ function startViewerServer() {
         res.end(req.method === "HEAD" ? undefined : body);
         return;
       }
-      // Is this request from THIS machine's own browser? Decided once, up here,
-      // because everything below that hands out the PIN needs it.
-      // See isLocalViewerRequest: cloudflared's requests also arrive from
-      // 127.0.0.1, so the socket address alone would let a tunnel visitor read
-      // this PC's PIN and stop the agent.
-      const panelLocal = isLocalViewerRequest(req);
-
       // The control panel -- the Linux/macOS counterpart of the Windows
       // host-window.ps1, and the same page on every OS if you want it. It shows
       // this PC's PIN, so it is local-only: a tunnel visitor must never get one.
@@ -2232,6 +2346,8 @@ function startViewerServer() {
           require("./host-panel").hostPanelHtml({
             deviceName: DEVICE_NAME,
             pin: DEVICE.pin,
+            linked: !looksLikePlaceholderToken(RELAY_TOKEN),
+            relayOrigin: API_ORIGIN,
             relayUrl: USE_RELAY ? RELAY_URL : "",
             relayConnected: wsOpen,
             tunnelUrl: PUBLIC_URL || null,
@@ -2261,6 +2377,7 @@ function startViewerServer() {
           pin: DEVICE.pin,
           relayUrl: USE_RELAY ? RELAY_URL : "",
           relayConnected: wsOpen,
+          linked: !looksLikePlaceholderToken(RELAY_TOKEN),
           tunnelUrl: PUBLIC_URL || null,
           directViewers: directClients.size,
           captureWanted,
@@ -2552,7 +2669,7 @@ function acceptDirectClient(client) {
         // An actual auth attempt with the wrong token: reject right away.
         failed = true;
         const got = typeof msg.token === "string" && msg.token.length
-          ? `"${msg.token.slice(0, 4)}…${msg.token.slice(-4)}" (length ${msg.token.length})`
+          ? `"${msg.token.slice(0, 4)}Ã¢â‚¬Â¦${msg.token.slice(-4)}" (length ${msg.token.length})`
           : "none";
         console.log(`[direct] rejected auth (page sent ${got}); raw: ${text.slice(0, 120)}`);
         try { client.send(JSON.stringify({ type: "auth_failed" })); } catch (_) {}
@@ -2640,7 +2757,7 @@ function startPublicLink(port) {
       console.log("      " + link);
       console.log("");
       console.log("  Enter your token when asked. It is also saved to the file");
-      console.log("  PUBLIC-LINK.txt (next to Start-Agent.bat). The link changes");
+      console.log("  PUBLIC-LINK.txt (next to " + (process.platform === "win32" ? "Start-Agent.bat" : "Start-Agent.sh") + "). The link changes");
       console.log("  every time the agent (or the tunnel) restarts.");
       console.log("  Don't open it on this PC.");
       console.log("============================================================");
@@ -2654,8 +2771,22 @@ function startPublicLink(port) {
     if (tunnelProc === proc) tunnelProc = null;
     if (e.code === "ENOENT") {
       tunnelMissing = true;
-      console.error("[public] cloudflared is not installed. Install it with:  winget install --id Cloudflare.cloudflared");
-      console.error("[public] then open a NEW PowerShell window and start the agent again. (Streaming works without it.)");
+      // Tell people how to install it on THEIR system. Suggesting winget and a
+      // PowerShell window to someone on Linux or macOS reads like a broken
+      // install rather than a missing optional package.
+      if (process.platform === "darwin") {
+        console.error("[public] cloudflared is not installed. Install it with:  brew install cloudflared");
+        console.error("[public] then start the agent again. (Streaming works without it.)");
+      } else if (process.platform === "linux") {
+        console.error("[public] cloudflared is not installed. Install it with:");
+        console.error("[public]   Debian/Ubuntu:  sudo apt install cloudflared   (or the .deb from cloudflare.com)");
+        console.error("[public]   Fedora:         sudo dnf install cloudflared");
+        console.error("[public]   Arch:           sudo pacman -S cloudflared");
+        console.error("[public] then start the agent again. (Streaming works without it.)");
+      } else {
+        console.error("[public] cloudflared is not installed. Install it with:  winget install --id Cloudflare.cloudflared");
+        console.error("[public] then open a NEW PowerShell window and start the agent again. (Streaming works without it.)");
+      }
     } else {
       console.error("[public] tunnel error: " + e.message);
     }
@@ -2721,7 +2852,19 @@ if (USE_RELAY) {
     // Falls back to printed instructions when there's no terminal to type
     // into (started as a service, output piped somewhere).
     let linked = false;
-    if (forceSetup || process.stdin.isTTY) {
+    // Where to ask for the account details.
+    //
+    // Windows keeps asking at the terminal: that is the flow Setup.bat leads
+    // people into, and the ClankerDesk window there is a PowerShell panel that
+    // does not host forms.
+    //
+    // Linux and macOS have no such window, so the control panel in the browser
+    // has a Link form -- a far better place to type a password than a terminal,
+    // and it works with no TTY at all (a .desktop launcher has none). So there
+    // it is skipped by default and only appears when --setup is asked for
+    // explicitly.
+    const askInTerminal = forceSetup || process.platform === "win32";
+    if (askInTerminal && (forceSetup || process.stdin.isTTY)) {
       try {
         if (forceSetup && !looksLikePlaceholderToken(RELAY_TOKEN)) {
           console.error("  This PC is already linked. Type the account you want to use:");
@@ -2732,21 +2875,35 @@ if (USE_RELAY) {
       }
     }
     if (!linked) {
+    const isWin = process.platform === "win32";
+    const panel = localPanelUrl();
     console.error("");
     console.error("  ============== ONE THING TO DO FIRST ==============");
     console.error("");
     console.error("  This PC is not linked to your account yet, so it will NOT");
     console.error("  appear in your dashboard and nobody can connect to it.");
     console.error("");
-    console.error("  Easiest: close this and re-open ClankerDesk, then type a");
-    console.error("  username and password when it asks.");
+    if (panel) {
+      // The good path on every OS that has the browser panel.
+      console.error("  Open this page and type your username and password:");
+      console.error("");
+      console.error("      " + panel);
+      console.error("");
+      console.error("  The ClankerDesk panel opens by itself when you start it, so");
+      console.error("  it is probably already in your browser. Press Super and");
+      console.error("  type \"ClankerDesk\" if you cannot find the tab.");
+      console.error("");
+    }
+    console.error("  Or from a terminal, re-run with --setup and it will ask:");
+    console.error("");
+    console.error("      ./Start-Agent.sh --setup");
     console.error("");
     console.error("  Or do it by hand:");
     console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
     console.error("    2. Copy YOUR PRIVATE KEY from the account page.");
-    console.error("    3. Open config.json in this folder with Notepad.");
+    console.error("    3. Open config.json" + (isWin ? " in Notepad" : " in any text editor") + ".");
     console.error("    4. Replace the text on the \"relayToken\" line with that key.");
-    console.error("    5. Save, then close and re-open ClankerDesk.");
+    console.error("    5. Save, then start ClankerDesk again.");
     console.error("");
     const local = localPageUrl();
     if (local) {
