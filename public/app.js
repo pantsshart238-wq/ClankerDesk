@@ -748,15 +748,46 @@ function sendMicChunk(ulaw) {
   try { ws.send(msg); } catch (_) {}
 }
 
+// startMic awaits getUserMedia, which can take from milliseconds (permission
+// already granted) to many seconds (permission prompt). micOn is only set at
+// the END of that window, so without a separate "starting" flag two calls can
+// be in flight at once -- a double-click on the mic button, or a Connect while
+// the auto-start is still prompting. The second call then overwrites micStream
+// and micNode, and stopMicTracks() only ever stops whichever pair is CURRENT,
+// so the first track keeps capturing forever: the OS recording indicator stays
+// on after mute and disconnect, and its onaudioprocess keeps sending a second
+// copy of every chunk.
+let micStarting = false;
+
 async function startMic(auto) {
+  // startMic awaits getUserMedia, which takes from milliseconds (permission
+  // already granted) to many seconds (permission prompt). micOn is only set at
+  // the END of that window, so without a separate "starting" flag two calls can
+  // be in flight at once -- a double-click on the mic button, or a Connect while
+  // the auto-start is still prompting. The second call then overwrote micStream
+  // and micNode, and stopMicTracks() only ever stops whichever pair is CURRENT,
+  // so the first track kept capturing forever: the OS recording indicator stayed
+  // on after mute and disconnect, and its onaudioprocess kept sending a second
+  // copy of every chunk (doubled, echoing voice at twice the uplink).
+  //
+  // The flag is owned by this wrapper rather than the body, because the body has
+  // several early returns (no mediaDevices, permission denied) that would
+  // otherwise skip a reset and wedge the mic permanently.
+  if (micStarting) return;              // one capture in flight at a time
+  micStarting = true;
+  try {
+    await startMicInner(auto);
+  } finally {
+    micStarting = false;
+  }
+}
+
+async function startMicInner(auto) {
   if (auto) {
     if (micOn || micAutoTried || micUserMuted) return;
     micAutoTried = true;
-  }
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    micBtn.title = "This browser can't capture a microphone here (needs https or localhost)";
-    if (inEmbedFrame()) micBlockedNotice(MIC_EMBED_FIX);
-    return;
+  } else if (micOn) {
+    return;                              // already live; the button toggles
   }
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
@@ -995,6 +1026,14 @@ function connect(url, token, isRetry) {
     lastDataReceivedAt = nowT; // video only (see watchdog note above)
 
     // Video header: [type:1][flags:1][timestampMicros:8 BE][payload...]
+    // The audio path guards its header length; this one did not. A truncated
+    // frame (bad relay, cut proxy chunk) makes subarray(10) return zero bytes,
+    // and feeding a zero-length EncodedVideoChunk throws inside decode() --
+    // which the catch below handles by tearing the decoder down and waiting for
+    // a keyframe. So one corrupt frame cost a full decoder rebuild plus ~1s of
+    // black, and a stream delivering them every second stayed black with a HUD
+    // reading "decoder error". Ignore short frames instead.
+    if (buf.length <= 10) return;
     const flags = buf[1];
     const isKey = (flags & 0x01) !== 0;
     let tsHigh = 0, tsLow = 0;
@@ -1040,9 +1079,25 @@ function connect(url, token, isRetry) {
 
 // ---- Input capture: mouse + keyboard + wheel -> JSON events sent to the agent ----
 
+// A send queue that is already deep will not get shallower by adding more: the
+// new events queue behind the backlog, so the remote cursor trails further and
+// further behind. The mic path already guards this (MIC_QUEUE_MAX) because a
+// stalled uplink there produces doubled/echoing voice; the same uplink carrying
+// 1080p60 video is the worse case, and a 1000 Hz mouse generates ~1000 events
+// a second.
+//
+// Only mousemove is dropped, deliberately. It is the one event where dropping is
+// lossless -- only the latest position matters, and the host interpolates
+// nothing. Every other event is discrete and low-rate: dropping a keydown,
+// keyup, mousedown or mouseup would lose a click or a keystroke outright, which
+// is far worse than a moment of lag.
+const INPUT_QUEUE_MAX = 256 * 1024;
+
 function sendInput(obj) {
   if (VIEW_ONLY && !VIEW_ONLY_ALLOWED.has(obj.type)) return; // never send mouse/keyboard in view-only mode
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (obj.type === "mousemove" && ws.bufferedAmount > INPUT_QUEUE_MAX) return;
+  ws.send(JSON.stringify(obj));
 }
 
 function toRemoteCoords(evt) {
@@ -1312,6 +1367,18 @@ document.getElementById("disconnectBtn").addEventListener("click", () => {
   }
   videoEverFlowed = false;
   hudLocked = false;
+  // The agent SIGKILLs and relaunches ffmpeg for every newly connected viewer
+  // (so it starts on a keyframe), which means the NEXT session is a brand-new
+  // SPS/PPS stream. Keeping the old decoder open would feed that new stream's
+  // delta frames into a decoder still holding the previous session's reference
+  // frames -- usually self-correcting via the catch that rebuilds on error, but
+  // as a "decoder error" HUD and a resync stall first. Close both decoders and
+  // go back to waiting for a keyframe, so the new session starts clean.
+  try { if (decoder && decoder.state !== "closed") decoder.close(); } catch (_) {}
+  decoder = null;
+  try { if (audioDecoder && audioDecoder.state !== "closed") audioDecoder.close(); } catch (_) {}
+  audioDecoder = null;
+  awaitingKey = true;
   viewerScreen.classList.add("hidden");
   landing.classList.remove("gone");
   hideLogin();
@@ -1319,6 +1386,7 @@ document.getElementById("disconnectBtn").addEventListener("click", () => {
   closeDash();
   closeDownloads();
   closeInfo();
+  closeSystemInfo();
   setStatus("", false);
   setHud("disconnected");
   setConnStatus("disconnected");
