@@ -19,6 +19,10 @@ New-Item -ItemType Directory -Path $stage, (Join-Path $stage "agent"), (Join-Pat
 # --- the actual program ------------------------------------------------------
 Copy-Item (Join-Path $root "Setup.bat")            $stage
 Copy-Item (Join-Path $root "Start-Agent.bat")      $stage
+# Installs ffmpeg when winget is unavailable, unpacking it into tools\ffmpeg
+# inside the ClankerDesk folder. agent\binaries.js looks there first, so the
+# result survives a PATH reset, a restart, or a different Windows user.
+Copy-Item (Join-Path $root "setup-ffmpeg.ps1")     $stage
 Copy-Item (Join-Path $root "agent\agent.js")       (Join-Path $stage "agent")
 # The platform layer. agent.js requires "./platform" near the top, so leaving
 # these out of the zip produced a download that died instantly with
@@ -32,7 +36,8 @@ Copy-Item (Join-Path $root "agent\agent.js")       (Join-Path $stage "agent")
 # dispatcher needs, and unzipping the wrong zip on the wrong OS still works.
 New-Item -ItemType Directory -Path (Join-Path $stage "agent\helpers") -Force | Out-Null
 foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
-                  "platform-linux.js", "platform-macos.js", "host-panel.js")) {
+                  "platform-linux.js", "platform-macos.js", "host-panel.js",
+                  "binaries.js")) {
   Copy-Item (Join-Path $root "agent\$pf") (Join-Path $stage "agent")
 }
 foreach ($hf in @("input-linux.js", "input-macos.js")) {
@@ -190,7 +195,8 @@ function New-UnixBundle {
   # bundle -- platform.js conditionally requires its implementation, so the
   # complete set is what keeps each bundle self-contained.
   foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
-                    "platform-linux.js", "platform-macos.js", "host-panel.js")) {
+                    "platform-linux.js", "platform-macos.js", "host-panel.js",
+                    "binaries.js")) {
     Copy-Item (Join-Path $root "agent\$pf") (Join-Path $u "agent")
   }
   foreach ($hf in @("input-linux.js", "input-macos.js")) {

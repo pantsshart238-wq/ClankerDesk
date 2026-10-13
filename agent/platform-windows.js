@@ -7,6 +7,7 @@
 // accidental edit fails loudly rather than shipping a subtle regression.
 
 const { hasCommand } = require("./platform-util");
+const binaries = require("./binaries");
 
 module.exports = {
   name: "Windows",
@@ -21,7 +22,7 @@ module.exports = {
     const problems = [];
     const warns = [];
 
-    if (!hasCommand("ffmpeg")) {
+    if (!binaries.findBinary("ffmpeg")) {
       problems.push(
         "ffmpeg is not installed, so there will be no picture.\n" +
         "            Install it, then restart ClankerDesk:\n" +
@@ -29,7 +30,7 @@ module.exports = {
         "            (or download a build from https://ffmpeg.org/download.html and add\n" +
         "             its bin folder to your PATH)"
       );
-    } else if (!hasCommand("ffplay")) {
+    } else if (!binaries.findBinary("ffplay")) {
       // ffplay ships inside the same ffmpeg package. Without it there is still
       // video, but a viewer's microphone will never play on this PC.
       warns.push(

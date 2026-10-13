@@ -27,6 +27,19 @@ const WebSocket = require("ws");
 // relay, wire format and viewer. Required up here (not next to the video
 // code) because a couple of early error paths reference it.
 const platform = require("./platform");
+const binaries = require("./binaries");
+
+// ffmpeg/ffplay used to be spawned by bare name, which only worked if the
+// user's PATH contained them. winget puts ffmpeg four directories deep and does
+// not put it on PATH, so on those machines a clean install streamed nothing.
+// Resolve once here; the search inside knows where each installer puts it.
+function binaryOrDie(name) {
+  const p = binaries.findBinary(name);
+  if (p) return p;
+  const why = binaries.missingReason() || (name + " was not found on this PC.");
+  console.error("\n  ClankerDesk cannot continue: " + why + "\n");
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------------------
 // config.json (project root) -- your settings, read automatically on startup.
@@ -433,7 +446,18 @@ function startFfmpeg() {
   const args = platform.videoArgs(preset, { nativeW: WIDTH, nativeH: HEIGHT });
 
   console.log("Starting ffmpeg:", "ffmpeg", args.join(" "));
-  const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawn(binaryOrDie("ffmpeg"), args, { stdio: ["ignore", "pipe", "pipe"] });
+
+  // A spawn that fails (ENOENT, EACCES) emits 'error' and never emits 'exit'.
+  // With no handler here, the only symptom was the watchdog insisting that
+  // capture had stalled, forever, on a machine where ffmpeg simply could not
+  // start -- and the real reason never appeared. Say it once, plainly.
+  proc.on("error", (e) => {
+    console.error("[ffmpeg] could not start: " + e.message);
+    console.error("[ffmpeg] looked for it at: " + binaries.findBinary("ffmpeg"));
+    console.error("[ffmpeg] " + (binaries.missingReason() ||
+      "run Setup.bat in the ClankerDesk folder to install it."));
+  });
 
   // stderr is captured (not silenced or inherited): we filter out ffmpeg's
   // constant \r progress spam so it doesn't bury the input-event debug logs,
@@ -740,12 +764,21 @@ function startFfmpegAudio() {
   const startFfmpeg = () => {
     if (ffmpegProc || dead) return;
     console.log("Starting audio ffmpeg:", "ffmpeg", args.join(" ") + (loopback ? "   [WASAPI loopback via audio-helper.ps1]" : ""));
-    ffmpegProc = spawn("ffmpeg", args, { stdio: ["pipe", "pipe", "pipe"] });
+    ffmpegProc = spawn(binaryOrDie("ffmpeg"), args, { stdio: ["pipe", "pipe", "pipe"] });
     if (helperProc && ffmpegProc.stdin) {
       helperProc.stdout.pipe(ffmpegProc.stdin);
       ffmpegProc.stdin.on("error", () => {}); // EPIPE when ffmpeg dies first
     }
     ffmpegProc.stdout.on("data", (chunk) => controller.stdout.write(chunk));
+
+    // As with video: 'error' without 'exit', so without this the only trace of
+    // a failed audio spawn was an unrelated-looking message much later.
+    ffmpegProc.on("error", (e) => {
+      console.error("[audio] ffmpeg could not start: " + e.message);
+      console.error("[audio] " + (binaries.missingReason() ||
+        "run Setup.bat in the ClankerDesk folder to install it."));
+      dead = true;
+    });
 
     let stderrTail = "";
     ffmpegProc.stderr.on("data", (chunk) => {
@@ -811,7 +844,7 @@ function startFfmpegAudio() {
   }
 
   console.log("Starting audio ffmpeg:", "ffmpeg", args.join(" "));
-  const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+  const proc = spawn(binaryOrDie("ffmpeg"), args, { stdio: ["ignore", "pipe", "pipe"] });
   let stderrTail = "";
   proc.stderr.on("data", (chunk) => {
     const text = chunk.toString();
@@ -910,7 +943,7 @@ function startMicFfmpeg() {
     "-i", "pipe:0",
   ];
   console.log(`[mic] starting playback via ffplay at ${micCodec === "ulaw8" ? "8000 Hz (mu-law, light stream)" : micRate + " Hz"}`);
-  const proc = spawn("ffplay", args, { stdio: ["pipe", "ignore", "pipe"] });
+  const proc = spawn(binaryOrDie("ffplay"), args, { stdio: ["pipe", "ignore", "pipe"] });
 
   let stderrTail = "";
   proc.stderr.on("data", (chunk) => {
@@ -1048,7 +1081,11 @@ function listDshowCapturePins() {
   // we never guess names like "Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)".
   return new Promise((resolve) => {
     let out = "";
-    const p = spawn("ffmpeg", ["-list_devices", "true", "-f", "dshow", "-i", "dummy"],
+    // A probe, not a capture: if ffmpeg is missing, report nothing found
+    // rather than exiting. preflight() already told the user the real problem.
+    const ff = binaries.findBinary("ffmpeg");
+    if (!ff) return resolve([]);
+    const p = spawn(ff, ["-list_devices", "true", "-f", "dshow", "-i", "dummy"],
       { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     p.stderr.on("data", (d) => { out += d; });
     p.on("error", () => resolve([]));
@@ -1077,7 +1114,9 @@ function resolveProbePins() {
 
 function recordPinPeak(pin, secs) {
   return new Promise((resolve) => {
-    const p = spawn("ffmpeg", ["-f", "dshow", "-i", "audio=" + pin, "-t", String(secs),
+    const ff = binaries.findBinary("ffmpeg");
+    if (!ff) return resolve(null);
+    const p = spawn(ff, ["-f", "dshow", "-i", "audio=" + pin, "-t", String(secs),
       "-af", "volumedetect", "-f", "null", "-"],
       { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     let err = "";

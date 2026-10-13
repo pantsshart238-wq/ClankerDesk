@@ -38,18 +38,22 @@ rem  ffmpeg is what captures and encodes the picture. Without it the
 rem  agent starts happily and then streams nothing, reporting errors
 rem  that never name ffmpeg -- so check here, where the fix can be
 rem  printed in one place.
+rem
+rem  "where ffmpeg" is NOT enough on its own: ffmpeg is often installed
+rem  but off PATH (winget buries it four folders deep), and Setup.bat
+rem  may have unpacked it into this folder instead. So ask the agent's
+rem  own resolver -- the same one the agent itself uses -- otherwise
+rem  this would refuse to start on a machine that works fine.
 rem ---------------------------------------------------------------
-where ffmpeg >nul 2>nul
-if errorlevel 1 (
+for /f "usebackq delims=" %%i in (`node -e "try{process.stdout.write(require('./agent/binaries').findBinary('ffmpeg')?'yes':'no')}catch(e){process.stdout.write('no')}" 2^>nul`) do set "HAS_FFMPEG=%%i"
+if not "%HAS_FFMPEG%"=="yes" (
     echo.
     echo  ==========================================================
-    echo   ffmpeg is not installed - this PC's screen cannot be shown.
+    echo   ffmpeg is not available - this PC's screen cannot be shown.
     echo  ==========================================================
     echo.
-    echo  Install it with:
-    echo      winget install --id Gyan.FFmpeg
-    echo.
-    echo  Or run Setup.bat in this folder, which does it for you.
+    echo  Run Setup.bat in this folder. It installs ffmpeg for you,
+    echo  and it does not need winget or admin rights.
     echo.
     echo  Then start ClankerDesk again.
     echo.

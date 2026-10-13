@@ -7,6 +7,7 @@
 // is enough to diagnose it.
 
 const { tryRun, hasCommand } = require("./platform-util");
+const binaries = require("./binaries");
 
 // ---- Screen geometry -------------------------------------------------------
 
@@ -166,7 +167,7 @@ module.exports = {
     const problems = [];
     const warns = [];
 
-    if (!hasCommand("ffmpeg")) {
+    if (!binaries.findBinary("ffmpeg")) {
       problems.push("ffmpeg is not installed. On Debian/Ubuntu: sudo apt install ffmpeg");
     }
     if (isWayland()) {

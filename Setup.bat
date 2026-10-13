@@ -5,8 +5,9 @@ cd /d "%~dp0"
 rem ------------------------------------------------------------------
 rem  ClankerDesk setup -- double-click once, then ClankerDesk runs.
 rem  1. Installs Node.js if this PC doesn't have it (one-time)
-rem  2. Installs the little pieces ClankerDesk needs (one-time)
-rem  3. Starts ClankerDesk (this window stays open -- that's normal)
+rem  2. Installs ffmpeg if this PC doesn't have it (one-time)
+rem  3. Installs the little pieces ClankerDesk needs (one-time)
+rem  Then it starts ClankerDesk (this window stays open -- that's normal)
 rem
 rem  Your device PIN (what friends use to connect to THIS pc) is
 rem  printed in this window once it's running.
@@ -43,19 +44,17 @@ rem ------------------------------------------------------------------
 rem  ffmpeg -- the thing that captures and encodes the picture.
 rem  This used to be assumed present, which meant a machine without it
 rem  installed "successfully" and then streamed nothing, with errors that
-rem  never mentioned ffmpeg at all. Install it here like everything else.
+rem  never mentioned ffmpeg at all.
+rem
+rem  setup-ffmpeg.ps1 does the work. It is a separate file because
+rem  getting this right needs three fallbacks -- already installed,
+rem  winget, then a plain download into this folder -- and that is too
+rem  much logic to survive inside a batch file. Winget on its own is
+rem  NOT enough: it is missing on some Windows installs and can refuse
+rem  to run unattended, which is exactly how the previous attempt
+rem  failed for people.
 rem ------------------------------------------------------------------
-where ffmpeg >nul 2>nul
-if errorlevel 1 (
-    echo  [2/3] Installing ffmpeg ^(the screen capture + encoder^)...
-    echo.
-    winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements
-    rem winget puts it somewhere already on PATH, but THIS window may not
-    rem know about it yet, so add the usual locations by hand.
-    set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;%LOCALAPPDATA%\Microsoft\WinGet\Packages;%PATH%"
-)
-
-where ffmpeg >nul 2>nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-ffmpeg.ps1"
 if errorlevel 1 (
     echo.
     echo  ==========================================================
@@ -64,19 +63,18 @@ if errorlevel 1 (
     echo.
     echo  ClankerDesk cannot show this PC's screen without it.
     echo.
-    echo  Install it with:
-    echo      winget install --id Gyan.FFmpeg
+    echo  The download may have been blocked, or this PC may not
+    echo  have internet access right now.
     echo.
-    echo  Or download a build from https://ffmpeg.org/download.html,
-    echo  unzip it, and add the folder containing ffmpeg.exe to your
-    echo  PATH ^(System Properties - Environment Variables - Path^).
-    echo.
-    echo  Then run Setup.bat again.
+    echo  When you have internet, either:
+    echo    - run Setup.bat again, or
+    echo    - download ffmpeg from https://ffmpeg.org/download.html,
+    echo      unzip it, and put the folder containing ffmpeg.exe into
+    echo      this folder as:  tools\ffmpeg\bin
     echo.
     pause
     exit /b 1
 )
-echo  ffmpeg is installed.
 
 if exist "agent\node_modules\ws" (
     echo  [3/3] Everything ClankerDesk needs is already bundled in this download.

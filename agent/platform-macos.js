@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 const { tryRun, hasCommand } = require("./platform-util");
+const binaries = require("./binaries");
 
 // ---- Capture device --------------------------------------------------------
 
@@ -176,7 +177,7 @@ module.exports = {
     const problems = [];
     const warns = [];
 
-    if (!hasCommand("ffmpeg")) {
+    if (!binaries.findBinary("ffmpeg")) {
       problems.push("ffmpeg is not installed. Run: brew install ffmpeg");
     }
     if (!hasCommand("cliclick")) {
