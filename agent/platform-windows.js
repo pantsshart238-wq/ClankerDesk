@@ -65,8 +65,12 @@ const ENCODER_OPTS = {
   h264_qsv: (p) => [
     "-c:v", "h264_qsv",
     "-preset", "veryfast",
-    "-tune", "zerolatency",      // QSV has no "ull"; this is its equivalent
-    "-pix_fmt", "yuv420p",       // see the libx264 note below -- gdigrab hands over bgra
+    // QSV has no "ull" and, per a real user log, no "tune" either -- ffmpeg said
+    // "Codec AVOption tune ... has not been used for any stream", i.e. it was
+    // silently ignored. Dropping it costs nothing and removes a warning that
+    // nobody can act on.
+    "-pix_fmt", "nv12",            // QSV rejects yuv420p by name: "Incompatible pixel
+                                   // format 'yuv420p' ... auto-selecting 'nv12'"
     "-profile:v", "high",
     "-level:v", "5.1",
     "-bf", "0",
@@ -80,7 +84,7 @@ const ENCODER_OPTS = {
     "-c:v", "h264_amf",
     "-usage", "ultralowlatency",
     "-quality", "speed",
-    "-pix_fmt", "yuv420p",
+    "-pix_fmt", "nv12",            // same hardware-NV12 convention as QSV
     "-rc", "cqp",
     "-qp_i", "18", "-qp_p", "20", "-qp_b", "22",
     "-profile:v", "high",
@@ -302,6 +306,39 @@ module.exports = {
   videoArgs(preset, ctx) {
     // Escape hatch, in case the probe guesses wrong on an odd machine.
     const forced = String(process.env.CAPTURE || "").toLowerCase();
+
+    const enc = this.pickEncoder();
+
+    // ---- If the encoder cannot read GPU frames, do not use GPU capture ----
+    //
+    // gfxcapture produces D3D11 frames. To hand those to a non-NVENC encoder the
+    // frame has to be downloaded with hwdownload, and that path is fragile: on a
+    // real user machine the graph set up, ffmpeg ran, and produced NOTHING --
+    // the stream mapping degraded to "format:default" instead of
+    // "gfxcapture:default", so the watchdog killed a capture that had already
+    // been starved. It worked on the machine it was written on, which is exactly
+    // why it survived being shipped.
+    //
+    // But note what that download would buy: nothing. Once a frame is in system
+    // memory, the GPU-capture advantage is already gone -- every frame still
+    // crosses the bus, and the encoder is now doing the work on the CPU anyway.
+    // So when the encoder is not NVENC, capture with gdigrab instead: it is
+    // plain GDI, needs no D3D11 device, no hwdownload, and no filter graph at
+    // all. It is the same path headless machines already use successfully.
+    if (!encoderReadsGpuFrames(enc) && forced !== "d3d11") {
+      if (!this._warnedSoftwareCapture) {
+        this._warnedSoftwareCapture = true;
+        console.error(
+          `\n[capture] Using gdigrab capture because ${enc} cannot encode GPU frames directly.\n` +
+          "           Windows Graphics Capture would have to download every frame to\n" +
+          "           system memory anyway, so there is nothing to gain from it, and the\n" +
+          "           download path has been seen to produce no frames at all.\n" +
+          "           Updating the NVIDIA driver will bring back the fast GPU path.\n"
+        );
+      }
+      return this.headlessArgs(preset);
+    }
+
     if (forced === "gdi" || (forced !== "d3d11" && !this.d3d11Available())) {
       if (!this._warnedHeadless) {
         this._warnedHeadless = true;
@@ -316,21 +353,8 @@ module.exports = {
       return this.headlessArgs(preset);
     }
 
-const enc = this.pickEncoder();
     const downscaling = (preset.w !== ctx.nativeW || preset.h !== ctx.nativeH);
-
-    // gfxcapture hands back D3D11 (GPU) frames, and the plain `scale` filter
-    // cannot read that format -- it aborts the whole graph with "Error
-    // configuring filter graph: Function not implemented", so ffmpeg died
-    // instantly and 720p never produced a picture.
-    //
-    // So anything that is not NVENC encoding straight out of GPU memory has to
-    // download to system memory first (bgra), scale there if the preset asks
-    // for it, and convert to the pixel format the chosen encoder accepts. NVENC
-    // with no downscale keeps the original untouched GPU path, which is why
-    // this condition is "not nvenc OR downscale" rather than just "downscale":
-    // a software encoder cannot read D3D11 frames at all.
-    const needsSystemMemory = !encoderReadsGpuFrames(enc) || downscaling;
+    const needsSystemMemory = downscaling;
 
     return [
       "-init_hw_device", "d3d11va",
@@ -339,7 +363,7 @@ const enc = this.pickEncoder();
         (needsSystemMemory
           ? `,hwdownload,format=bgra` +
             (downscaling ? `,scale=${preset.w}:${preset.h}` : "") +
-            `,format=${encoderPixFmt(enc)}`
+            `,format=nv12`
           : ""),
 
       ...ENCODER_OPTS[enc](preset),
