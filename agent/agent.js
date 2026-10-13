@@ -131,36 +131,94 @@ function relayApiBase() {
 // swallowed every keystroke on Linux, so the password prompt looked frozen.
 // A muted Writable is the documented way to do this and behaves the same
 // everywhere.
+// ONE readline interface for the whole session, reused by both questions.
+//
+// This used to build a fresh interface per question and close it afterwards.
+// With terminal:true that puts stdin into raw mode and back out again for each
+// one, and the second interface does not reliably re-attach its keypress
+// listener afterwards -- so the username typed fine and the password prompt
+// silently swallowed every keystroke. It is visible on a real terminal and
+// invisible to a test that pipes stdin, which is why it survived as long as it
+// did.
+//
+// One interface, created once, asked twice. Nothing is torn down between the
+// questions, so there is no raw-mode round trip to get wrong.
+const promptState = {
+  rl: null,
+  muted: false,
+  proxy: null,
+};
+
+function promptOutput() {
+  if (!promptState.proxy) {
+    const { Writable } = require("stream");
+    promptState.proxy = new Writable({
+      write(chunk, enc, cb) {
+        // While muted the user is typing a password: nothing may reach the
+        // screen. Everything else passes straight through.
+        if (promptState.muted) cb();
+        else process.stdout.write(chunk, enc, cb);
+      },
+    });
+  }
+  return promptState.proxy;
+}
+
+function promptInterface() {
+  if (promptState.rl && !promptState.rl.closed) return promptState.rl;
+  const rl = require("readline").createInterface({
+    input: process.stdin,
+    output: promptOutput(),
+    terminal: true,
+  });
+  // Ctrl+C at a prompt means "never mind", not a crash. Handled once here;
+  // ask() decides what that means for the question in flight.
+  rl.on("SIGINT", () => {});
+  promptState.rl = rl;
+  return rl;
+}
+
+// Release stdin once the questions are done, so the terminal is left in a
+// normal state and Ctrl+C behaves. Safe to call more than once.
+function closePrompt() {
+  promptState.muted = false;
+  const rl = promptState.rl;
+  promptState.rl = null;
+  if (rl && !rl.closed) { try { rl.close(); } catch (e) { /* already closing */ } }
+}
+
 function ask(question, hideInput) {
   return new Promise((resolve) => {
-    const { Writable } = require("stream");
-    const muted = new Writable({
-      write(chunk, enc, cb) { cb(); }, // swallow: the password never hits the screen
-    });
+    const rl = promptInterface();
 
-    const rl = require("readline").createInterface({
-      input: process.stdin,
-      output: hideInput ? muted : process.stdout,
-      terminal: true,
-    });
-
-    // The question has to be printed before the reader starts swallowing, or
-    // it would be eaten too and the user would see no prompt at all.
-    if (hideInput) process.stdout.write(question);
+    if (hideInput) {
+      // Print the question ourselves and mute from here on, so the prompt is
+      // visible but nothing typed after it is.
+      process.stdout.write(question);
+      promptState.muted = true;
+    }
 
     let answered = false;
     const finish = (value) => {
       if (answered) return;
       answered = true;
-      try { rl.close(); } catch (e) { /* already closing */ }
+      promptState.muted = false;
       resolve(value);
     };
 
-    // Ctrl+C at the prompt means "never mind", not a crash.
-    rl.on("SIGINT", () => finish(""));
-    rl.on("close", () => finish(""));
+    // Ctrl+C (or the interface going away) resolves the pending question as
+    // "nothing given" instead of hanging forever.
+    const onSigint = () => finish("");
+    const onClose = () => finish("");
+    rl.once("SIGINT", onSigint);
+    rl.once("close", onClose);
+    const detach = () => {
+      rl.removeListener("SIGINT", onSigint);
+      rl.removeListener("close", onClose);
+    };
 
     rl.question(hideInput ? "" : question, (answer) => {
+      detach();
       if (hideInput) process.stdout.write("\n");
       finish(answer.trim());
     });
@@ -239,11 +297,15 @@ async function provisionAccount() {
 
   const user = await ask("  Username: ", false);
   if (!user) {
+    closePrompt();
     console.error("  No username given -- nothing was changed.");
     console.error("  Open the ClankerDesk panel in your browser to finish setup.");
     return false;
   }
   const pass = await ask("  Password: ", true);
+  // Release stdin now that the questions are over, whether or not it worked.
+  // Without this the terminal is left in raw mode and Ctrl+C stops echoing.
+  closePrompt();
   if (!pass) {
     console.error("  No password given -- nothing was changed.");
     return false;
@@ -2854,16 +2916,14 @@ if (USE_RELAY) {
     let linked = false;
     // Where to ask for the account details.
     //
-    // Windows keeps asking at the terminal: that is the flow Setup.bat leads
-    // people into, and the ClankerDesk window there is a PowerShell panel that
-    // does not host forms.
-    //
-    // Linux and macOS have no such window, so the control panel in the browser
-    // has a Link form -- a far better place to type a password than a terminal,
-    // and it works with no TTY at all (a .desktop launcher has none). So there
-    // it is skipped by default and only appears when --setup is asked for
-    // explicitly.
-    const askInTerminal = forceSetup || process.platform === "win32";
+    // The control panel in the browser is the default on EVERY platform now.
+    // The terminal prompt is the fragile path: it needs an interactive TTY, so
+    // it cannot run at all from a .desktop launcher, service or CI, and there
+    // is a long-standing wrinkle where the SECOND question (the password)
+    // silently swallows keystrokes on some consoles. The panel has none of
+    // those problems and is covered by its own tests, so it is what people get
+    // unless they explicitly ask for the terminal with --setup.
+    const askInTerminal = forceSetup;
     if (askInTerminal && (forceSetup || process.stdin.isTTY)) {
       try {
         if (forceSetup && !looksLikePlaceholderToken(RELAY_TOKEN)) {
