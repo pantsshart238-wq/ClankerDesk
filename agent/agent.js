@@ -1501,6 +1501,32 @@ function localPanelUrl() {
   return page.replace("localhost", "127.0.0.1") + "/host";
 }
 
+// Pop the control panel open in the default browser, whatever the OS.
+//
+// This matters most exactly when it is least obvious: account setup now lives
+// only in the panel's Link form, and on Windows the ClankerDesk window is a
+// PowerShell panel that has no form in it. Without this, a fresh Windows
+// install had no automatic route to linking the PC at all -- the terminal
+// prompt is gone and the browser page was never opened.
+function openLocalPanel() {
+  const url = localPanelUrl();
+  if (!url) return false;
+  try {
+    if (process.platform === "win32") {
+      // `start` with an empty title argument, detached, so this never blocks.
+      require("child_process").spawn("cmd.exe", ["/c", "start", "", url],
+        { detached: true, stdio: "ignore", windowsHide: false }).unref();
+    } else if (process.platform === "darwin") {
+      require("child_process").spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+    } else {
+      require("child_process").spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+    }
+    return true;
+  } catch (_) {
+    return false;   // no browser, no display, whatever -- the URL is printed anyway
+  }
+}
+
 function connectRelay() {
   const url = `${RELAY_URL}${RELAY_URL.includes("?") ? "&" : "?"}role=agent&token=${encodeURIComponent(RELAY_TOKEN)}` +
     `&device=${encodeURIComponent(DEVICE.deviceId)}&name=${encodeURIComponent(DEVICE_NAME)}&pin=${encodeURIComponent(DEVICE.pin)}`;
@@ -2967,14 +2993,23 @@ if (USE_RELAY) {
       console.error("");
       console.error("      " + panel);
       console.error("");
-      console.error("  The ClankerDesk panel opens by itself when you start it, so");
-      console.error("  it is probably already in your browser. Press Super and");
-      console.error("  type \"ClankerDesk\" if you cannot find the tab.");
+      // Open it for them rather than just naming it. This matters most on
+      // Windows, where the ClankerDesk window is a PowerShell panel with no
+      // form in it: without this there is no automatic route to linking the PC
+      // at all, because the terminal prompt is gone.
+      if (openLocalPanel()) {
+        console.error("  It should have just opened in your browser. If nothing");
+        console.error("  appeared, click the address above or paste it in yourself.");
+        console.error("");
+      } else {
+        console.error("  (could not open a browser for you -- paste that address in)");
+        console.error("");
+      }
       console.error("");
     }
     console.error("  Or from a terminal, re-run with --setup and it will ask:");
     console.error("");
-    console.error("      ./Start-Agent.sh --setup");
+    console.error("      " + (isWin ? "Start-Agent.bat --setup" : "./Start-Agent.sh --setup"));
     console.error("");
     console.error("  Or do it by hand:");
     console.error("    1. Open the ClankerDesk website and Sign up (or Log in).");
