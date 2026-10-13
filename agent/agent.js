@@ -69,6 +69,12 @@ try {
       micDevice: "MIC_DEVICE",
       quality: "QUALITY",
       deviceName: "DEVICE_NAME",
+      // Escape hatches, and they have to be reachable from config.json: the
+      // "capture could not start" message tells people to set ENCODER=libx264
+      // there, and until this mapping existed that instruction silently did
+      // nothing at all -- the value never reached the platform layer.
+      encoder: "ENCODER",
+      capture: "CAPTURE",
     };
     const applied = [];
     for (const [key, envName] of Object.entries(toEnv)) {

@@ -126,7 +126,19 @@ Copy-Item $wsSrc (Join-Path $stage "agent\node_modules\ws") -Recurse
 
   // Default stream quality: "1080p60", "720p60" or "1080p30".
   // Viewers can switch any time with the quality button in the viewer.
-  "quality": "1080p60"
+  "quality": "1080p60",
+
+  // Only if video will not start. Leave "" and ClankerDesk picks the best
+  // encoder this PC can actually use. To force one by hand:
+  //   "encoder": "libx264"   software, works everywhere but uses CPU
+  //   "encoder": "h264_qsv"  Intel
+  //   "encoder": "h264_amf"  AMD
+  //   "encoder": "h264_nvenc" NVIDIA
+  "encoder": "",
+
+  // Only if video will not start on a headless PC. "d3d11" is the fast
+  // capture; "gdi" is the fallback that works with no monitor attached.
+  "capture": ""
 }
 '@ | ForEach-Object { [System.IO.File]::WriteAllText((Join-Path $stage "config.json"), $_, $utf8nb) }
 
@@ -136,12 +148,12 @@ ClankerDesk - quick start
 =========================
 
 1. Run Setup.bat once. It installs what's needed and starts ClankerDesk.
-   (Portable version: run Start-Agent.bat directly — needs Node.js.)
+   (Portable version: run Start-Agent.bat directly Ã¢â‚¬â€ needs Node.js.)
 
-2. Sign up on the website (the Sign up button — free). Copy your PRIVATE KEY.
+2. Sign up on the website (the Sign up button Ã¢â‚¬â€ free). Copy your PRIVATE KEY.
 
 3. Open config.json in Notepad, paste the key into "relayToken", save,
-   restart ClankerDesk. This PC now shows up under YOUR account in Devices —
+   restart ClankerDesk. This PC now shows up under YOUR account in Devices Ã¢â‚¬â€
    only your login can see it.
 
 4. Give the PIN (shown in the ClankerDesk window) to the people you want to
@@ -275,7 +287,12 @@ $AudioComment
 
   // Default stream quality: "1080p60", "720p60" or "1080p30".
   // Viewers can switch any time with the quality button in the viewer.
-  "quality": "1080p60"
+  "quality": "1080p60",
+
+  // Only if video will not start. Leave "" and ClankerDesk picks the best
+  // encoder this PC can actually use ("h264_nvenc", "h264_qsv",
+  // "h264_amf", or "libx264" to force software encoding).
+  "encoder": ""
 }
 "@
   [System.IO.File]::WriteAllText((Join-Path $u "config.json"), $config, $utf8nb)

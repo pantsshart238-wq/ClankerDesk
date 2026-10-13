@@ -6,7 +6,7 @@
 // output here is deliberately loud about WHY something failed so a paste-back
 // is enough to diagnose it.
 
-const { tryRun, hasCommand } = require("./platform-util");
+const { tryRun, hasCommand, pickAvailableEncoder } = require("./platform-util");
 const binaries = require("./binaries");
 
 // ---- Screen geometry -------------------------------------------------------
@@ -34,14 +34,36 @@ function isWayland() {
 // Prefer NVENC when there is an NVIDIA card, because it is what the Windows
 // build uses and it leaves the CPU free. Otherwise x264 in ultrafast -- slower,
 // but it works on Intel/AMD laptops, which is what most people have.
+// This used to ask `nvidia-smi -L` whether a GPU was present, and return
+// h264_nvenc if so. That is not the same question: nvidia-smi proves a card
+// exists, not that this ffmpeg can open NVENC with this driver. ffmpeg 7 wants
+// NVENC API 12 and ffmpeg 9 wants 13.1, while a driver a few years old still
+// reports 11.1 -- so a laptop with a perfectly good NVIDIA card would pick
+// NVENC, fail instantly with "Driver does not support the required nvenc API
+// version", and restart ffmpeg forever. (This is the identical bug Windows had,
+// and it was left in place here after being fixed there.)
+//
+// Asking ffmpeg directly also picks up Intel Quick Sync, which the old check
+// could never have found because it does not involve nvidia-smi at all.
 function pickEncoder() {
-  if (hasCommand("nvidia-smi")) {
-    try {
-      if (tryRun("nvidia-smi", ["-L"])) return "h264_nvenc";
-    } catch (_) { /* fall through */ }
-  }
-  return "libx264";
+  return pickAvailableEncoder(
+    ["h264_nvenc", "h264_qsv", "libx264"],
+    (enc) => ENCODER_OPTS[enc],
+    "1920x1080",
+  );
 }
+
+// The options each Linux encoder gets. Shared by the probe and by videoArgs, so
+// what gets tested is exactly what gets used -- a probe using different flags
+// would prove nothing about the real command line.
+const ENCODER_OPTS = {
+  h264_nvenc: ["-preset", "p1", "-tune", "ull", "-slices", "1", "-rc", "cbr"],
+  h264_qsv: ["-preset", "veryfast", "-tune", "zerolatency"],
+  // x264: zerolatency kills lookahead, ultrafast keeps CPU cost low, and
+  // slices=1 is the x264 equivalent of NVENC's -slices 1 (the browser's Annex-B
+  // frame parser needs single-slice frames to find boundaries).
+  libx264: ["-preset", "ultrafast", "-tune", "zerolatency", "-x264-params", "slices=1"],
+};
 
 module.exports = {
   name: "Linux",
@@ -65,23 +87,11 @@ module.exports = {
 
     const codec = pickEncoder();
     if (codec === "h264_nvenc") {
-      out.push(
-        "-c:v", "h264_nvenc",
-        "-preset", "p1",
-        "-tune", "ull",
-        "-slices", "1",
-        "-rc", "cbr",
-      );
+      out.push("-c:v", "h264_nvenc", ...ENCODER_OPTS.h264_nvenc);
+    } else if (codec === "h264_qsv") {
+      out.push("-c:v", "h264_qsv", ...ENCODER_OPTS.h264_qsv);
     } else {
-      // x264: zerolatency kills lookahead, ultrafast keeps CPU cost low, and
-      // slices=1 is the x264 equivalent of NVENC's -slices 1 (the browser's
-      // Annex-B frame parser needs single-slice frames to find boundaries).
-      out.push(
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-tune", "zerolatency",
-        "-x264-params", "slices=1",
-      );
+      out.push("-c:v", "libx264", ...ENCODER_OPTS.libx264);
     }
 
     out.push(

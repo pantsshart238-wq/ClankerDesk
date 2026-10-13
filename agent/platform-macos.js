@@ -14,7 +14,7 @@
 // look broken when it isn't; preflight() below says so out loud.
 // ---------------------------------------------------------------------------
 
-const { tryRun, hasCommand } = require("./platform-util");
+const { tryRun, hasCommand, pickAvailableEncoder } = require("./platform-util");
 const binaries = require("./binaries");
 
 // ---- Capture device --------------------------------------------------------
@@ -44,6 +44,18 @@ function pickScreenDevice() {
   const screens = devices.filter((d) => /capture screen/i.test(d.name));
   if (screens.length) return screens[0];
   return devices.length ? devices[devices.length - 1] : null;
+}
+
+// Which H.264 encoder to use. VideoToolbox first because it is hardware and
+// leaves the CPU free, libx264 last because it cannot fail.
+//
+// Note the asymmetry with the other platforms: VideoToolbox is probed by
+// compile-time list rather than by encoding two frames. Its driver is macOS
+// itself, so there is no driver/ffmpeg version skew to be caught by a real
+// encode -- the failure that "Driver does not support the required nvenc API
+// version" describes cannot happen here.
+function macCodec() {
+  return pickAvailableEncoder(["h264_videotoolbox", "libx264"], () => []);
 }
 
 module.exports = {
@@ -79,7 +91,13 @@ module.exports = {
       // -slices / -tune / -forced-idr equivalents, so those are deliberately
       // absent here -- everything else matches the other platforms so the
       // browser decodes all three identically.
-      "-c:v", "h264_videotoolbox",
+      //
+      // VideoToolbox is probed rather than assumed for the same reason the
+      // other platforms are: a build of ffmpeg without it, or a machine whose
+      // GPU is on the blocklist, would otherwise fail at encoder open with a
+      // message that never mentions which encoder was used. libx264 is the
+      // fallback and always works.
+      "-c:v", macCodec(),
       "-b:v", preset.bitrate,
       "-maxrate", preset.bitrate,
       "-bufsize", preset.bufsize,
