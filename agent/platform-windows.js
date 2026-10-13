@@ -262,6 +262,21 @@ module.exports = {
     return this._encoder;
   },
 
+  // Forget the probed encoder so the next capture re-probes.
+  //
+  // The startup probe and the real pipeline are close but not identical: the
+  // probe encodes from a synthetic lavfi source, production encodes from
+  // gdigrab or gfxcapture. So it is possible for an encoder to open in the
+  // probe and still fail for real. When that happens the agent asks for this,
+  // and the next start re-probes from scratch -- which may well land on a
+  // different encoder.
+  //
+  // _warnedEncoder is deliberately NOT cleared, so the "using x instead of
+  // NVENC" explanation is printed once per run, not once per retry.
+  resetEncoder() {
+    this._encoder = undefined;
+  },
+
   // Headless capture. Everything is the same as the D3D11 path except the
   // capture filter and the downscale: GDI gives us whatever the virtual
   // display happens to be (often 640x480), and upscaling that to 1080p would

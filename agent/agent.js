@@ -492,6 +492,17 @@ function startFfmpeg() {
     const now = Date.now();
     ffmpegFastFails = (now - lastFfmpegExit < 8000) ? ffmpegFastFails + 1 : 1;
     lastFfmpegExit = now;
+
+    // On the FIRST fast failure, distrust the encoder probe and make it run
+    // again. The probe encodes from a synthetic source while production
+    // encodes from the real desktop, so an encoder can pass the probe and
+    // still fail here. Re-probing costs ~200ms and may pick a different one,
+    // which is a far better outcome than giving up on the second failure.
+    if (ffmpegFastFails === 1 && typeof platform.resetEncoder === "function") {
+      platform.resetEncoder();
+      console.error("[ffmpeg] gave no frames; re-checking which encoder this PC can actually use...");
+    }
+
     if (ffmpegFastFails >= 4 && captureWanted) {
       captureWanted = false;
       console.error(
