@@ -91,6 +91,32 @@ if exist "agent\node_modules\ws" (
     )
 )
 
+rem ------------------------------------------------------------------
+rem  node-interception -- OPTIONAL, and never fatal.
+rem
+rem  It is what lets mouse clicks and camera-relative movement register
+rem  inside GAMES, which ignore synthetic mouse input. Without it the
+rem  desktop and the browser still work fine via the PowerShell helper.
+rem
+rem  It was declared in package.json the whole time, but never actually
+rem  arrived: the step above skips `npm install` entirely when the
+rem  bundled `ws` is already present, so every install took that shortcut
+rem  and left this one out.
+rem
+rem  It is a native module and can fail to build without admin rights, so
+rem  failure here is reported in one line and otherwise ignored. Asking
+rem  node whether it resolves is the only reliable test: the package can
+rem  land in agent\node_modules or one level up, and a fixed path would
+rem  guess wrong. The lookup is anchored to the agent folder, so it asks
+rem  exactly the question agent.js asks when it requires the module.
+rem ------------------------------------------------------------------
+for /f "usebackq delims=" %%i in (`node -e "try{require.resolve('node-interception',{paths:[require('path').join(process.cwd(),'agent')]});process.stdout.write('yes')}catch(e){process.stdout.write('no')}" 2^>nul`) do set "HAS_INTERCEPTION=%%i"
+if not "%HAS_INTERCEPTION%"=="yes" (
+    echo.
+    echo  Optional: game mouse support ^(node-interception^)...
+    call npm.cmd install node-interception --no-audit --no-fund --loglevel=error
+)
+
 echo.
 echo  Setup complete! Starting ClankerDesk...
 echo.

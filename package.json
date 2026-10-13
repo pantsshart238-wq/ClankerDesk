@@ -14,8 +14,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "ws": "^8.18.0",
-    "node-interception": "^2.0.4"
+    "node-interception": "^2.0.4",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "wrangler": "^3.90.0"

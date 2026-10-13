@@ -9,6 +9,133 @@
 const { hasCommand } = require("./platform-util");
 const binaries = require("./binaries");
 
+// ---------------------------------------------------------------------------
+// Choosing an H.264 encoder
+// ---------------------------------------------------------------------------
+// This used to be hardcoded to h264_nvenc, on the theory that a machine with
+// an NVIDIA GPU can use it. That is not true, and the failure is total and
+// silent:
+//
+//   [h264_nvenc] Driver does not support the required nvenc API version.
+//                 Required: 13.1 Found: 11.1
+//   [h264_nvenc] The minimum required Nvidia driver for nvenc is 610.00
+//
+// An NVIDIA GPU being present says nothing about whether the installed DRIVER
+// is recent enough for the installed ffmpeg. Those two versions move
+// independently: ffmpeg 7 wants NVENC API 12, ffmpeg 9 wants 13.1, and a driver
+// from a few years ago still reports 11.1. So a laptop could have a perfectly
+// good NVIDIA card and still be unable to open the encoder at all.
+//
+// When that happens, ffmpeg exits immediately, the agent restarts it, it exits
+// again, and the user sees an endless watchdog loop ("capture appears stalled")
+// that never mentions an encoder or a driver.
+//
+// So the encoder is PROBED, not assumed, and there is always something that
+// works: Intel Quick Sync and AMD AMF are hardware encoders present on most
+// laptops, and libx264 is software and works on literally any machine.
+//
+// The nvenc entry below must stay byte-for-byte what it always was:
+// platform-selftest.js compares generated argv against the recorded original,
+// so any drift fails loudly instead of quietly regressing the working path.
+const ENCODER_OPTS = {
+  h264_nvenc: (p) => [
+    "-c:v", "h264_nvenc",
+    "-preset", "p1",             // p1 is the most consistent/lowest-latency preset with the
+                                 // least per-frame timing variance; prioritising "never laggy"
+                                 // over "slightly sharper text" is the right trade right now
+    "-tune", "ull",              // zero lookahead/buffering
+    "-slices", "1",              // exactly one slice per frame -- the AnnexBFrameParser assumes
+                                 // this to find frame boundaries; a multi-slice frame can
+                                 // confuse the browser's decoder and stall video with no error
+    "-rc", "cbr",
+    "-b:v", p.bitrate,
+    "-maxrate", p.bitrate,
+    "-bufsize", p.bufsize,       // deliberately smaller than the bitrate: a bufsize equal to the
+                                 // full bitrate lets up to ~1s of frames queue before delivery
+                                 // (exactly what "randomly gets delayed" feels like); a tighter
+                                 // buffer drops quality briefly during spikes instead of
+                                 // building up a delay
+    "-g", String(p.fps),         // keyframe once a second, so the viewer's latency guard resyncs
+                                 // a falling-behind decoder on the NEXT keyframe
+    "-profile:v", "high",
+    "-level:v", "5.1",
+    "-bf", "0",                  // no B-frames: keeps decode order == display order
+    "-forced-idr", "1",
+  ],
+  h264_qsv: (p) => [
+    "-c:v", "h264_qsv",
+    "-preset", "veryfast",
+    "-tune", "zerolatency",      // QSV has no "ull"; this is its equivalent
+    "-pix_fmt", "yuv420p",       // see the libx264 note below -- gdigrab hands over bgra
+    "-profile:v", "high",
+    "-level:v", "5.1",
+    "-bf", "0",
+    "-forced_idr", "1",          // note the underscore: QSV spells it differently to NVENC
+    "-b:v", p.bitrate,
+    "-maxrate", p.bitrate,
+    "-bufsize", p.bufsize,
+    "-g", String(p.fps),
+  ],
+  h264_amf: (p) => [
+    "-c:v", "h264_amf",
+    "-usage", "ultralowlatency",
+    "-quality", "speed",
+    "-pix_fmt", "yuv420p",
+    "-rc", "cqp",
+    "-qp_i", "18", "-qp_p", "20", "-qp_b", "22",
+    "-profile:v", "high",
+    "-bf", "0",
+    "-b:v", p.bitrate,
+    "-maxrate", p.bitrate,
+    "-bufsize", p.bufsize,
+    "-g", String(p.fps),
+  ],
+  libx264: (p) => [
+    "-c:v", "libx264",
+    "-preset", "ultrafast",      // software: the speed presets are the only sane ones at 60fps
+    "-tune", "zerolatency",
+    // gdigrab hands over bgra, and libx264 refuses it outright:
+    //   "Task finished with error code: -22 (Invalid argument)", 0 frames.
+    // So the fallback meant to rescue a machine whose NVENC cannot open was
+    // itself guaranteed to fail on the headless capture path. Ask for 4:2:0
+    // explicitly instead of relying on ffmpeg to negotiate it.
+    "-pix_fmt", "yuv420p",
+    "-profile:v", "high",
+    "-level:v", "5.1",
+    "-bf", "0",
+    "-forced-idr", "1",
+    "-b:v", p.bitrate,
+    "-maxrate", p.bitrate,
+    "-bufsize", p.bufsize,
+    "-g", String(p.fps),
+  ],
+};
+
+// Order matters: hardware encoders first (they leave the CPU free), software
+// last as the thing that cannot fail.
+const ENCODER_ORDER = ["h264_nvenc", "h264_qsv", "h264_amf", "libx264"];
+
+// Only NVENC can encode straight out of GPU memory. QSV, AMF and x264 all need
+// system memory, so those paths must always hwdownload (see videoArgs).
+function encoderReadsGpuFrames(enc) { return enc === "h264_nvenc"; }
+
+// The pixel format each encoder is fed. nv12 is the same 4:2:0 layout as
+// yuv420p in memory, but ffmpeg treats them as distinct formats and libx264
+// only accepts yuv420p by that name.
+function encoderPixFmt(enc) { return encoderReadsGpuFrames(enc) ? "nv12" : "yuv420p"; }
+
+// A stand-in preset for probing: the options only need to be accepted by the
+  // encoder, not produce a sensible picture.
+const PROBE_PRESET = { fps: 30, bitrate: "4M", bufsize: "2M" };
+
+// The probe's source MUST be full-size. Probing at 128x128 looks like a cheap
+// way to test quickly, and it is actively harmful: NVENC rejects frames below
+// a minimum dimension with "Frame Dimension less than the minimum supported
+// value", so a small probe reports a working NVENC as broken and silently
+// demotes a perfectly good RTX card to software encoding. 1920x1080 is what
+// actually gets encoded in practice, so it is what gets tested.
+const PROBE_SIZE = "1920x1080";
+
 module.exports = {
   name: "Windows",
 
@@ -49,7 +176,7 @@ module.exports = {
       );
     }
 
-    return { problems, warns };
+    return { problems, warns, info: "encoder: " + this.pickEncoder() };
   },
 
   // ---- Which capture path ---------------------------------------------------
@@ -81,6 +208,60 @@ module.exports = {
     return this._d3d11;
   },
 
+  // Which encoder can ACTUALLY open here. Probed once, then cached, because
+  // the answer cannot change while the agent runs and because a wrong choice
+  // is a total failure rather than a slow one.
+  //
+  // The probe encodes a couple of frames of a synthetic 128x128 clip. That is
+  // what catches the driver-too-old case, since the NVENC error appears when
+  // the encoder opens, before any real capture happens.
+  pickEncoder() {
+    if (this._encoder) return this._encoder;
+
+    const forced = String(process.env.ENCODER || "").trim().toLowerCase();
+    if (forced && ENCODER_OPTS[forced]) {
+      this._encoder = forced;
+      return forced;
+    }
+
+    const ff = binaries.findBinary("ffmpeg");
+    // Without ffmpeg there is nothing to probe, and binaries.js/preflight
+    // will report that properly. Assume x264 so the argv is still valid.
+    if (!ff) { this._encoder = "libx264"; return this._encoder; }
+
+    for (const enc of ENCODER_ORDER) {
+      let args;
+      try {
+        args = ["-hide_banner", "-loglevel", "error",
+          "-f", "lavfi", "-i", `color=c=black:s=${PROBE_SIZE}:r=30:d=0.2`,
+          ...ENCODER_OPTS[enc](PROBE_PRESET),
+          "-frames:v", "2", "-f", "null", "-"];
+      } catch (_) { continue; }
+
+      try {
+        require("child_process").execFileSync(ff, args,
+          { timeout: 25000, stdio: ["ignore", "ignore", "ignore"] });
+        if (enc !== ENCODER_ORDER[0] && !this._warnedEncoder) {
+          this._warnedEncoder = true;
+          console.error(
+            `\n[encode] Using ${enc} instead of NVENC.\n` +
+            "          This PC has an NVIDIA GPU, but its driver is too old for the\n" +
+            "          installed ffmpeg to use it (ffmpeg 7 needs driver 560+, ffmpeg 9\n" +
+            "          needs 610+). This is not a fault with your PC -- updating the\n" +
+            "          NVIDIA driver would let it use NVENC again, which is faster.\n"
+          );
+        }
+        this._encoder = enc;
+        return enc;
+      } catch (_) { /* try the next one */ }
+    }
+
+    // Nothing opened. x264 is the best guess, and the spawn error handler will
+    // say so plainly rather than looping.
+    this._encoder = "libx264";
+    return this._encoder;
+  },
+
   // Headless capture. Everything is the same as the D3D11 path except the
   // capture filter and the downscale: GDI gives us whatever the virtual
   // display happens to be (often 640x480), and upscaling that to 1080p would
@@ -93,19 +274,7 @@ module.exports = {
       "-draw_mouse", "1",
       "-i", "desktop",
 
-      "-c:v", "h264_nvenc",
-      "-preset", "p1",
-      "-tune", "ull",
-      "-slices", "1",
-      "-rc", "cbr",
-      "-b:v", preset.bitrate,
-      "-maxrate", preset.bitrate,
-      "-bufsize", preset.bufsize,
-      "-g", String(preset.fps),
-      "-profile:v", "high",
-      "-level:v", "5.1",
-      "-bf", "0",
-      "-forced-idr", "1",
+      ...ENCODER_OPTS[this.pickEncoder()](preset),
 
       "-f", "h264",
       "pipe:1",
@@ -132,50 +301,33 @@ module.exports = {
       return this.headlessArgs(preset);
     }
 
+const enc = this.pickEncoder();
+    const downscaling = (preset.w !== ctx.nativeW || preset.h !== ctx.nativeH);
+
+    // gfxcapture hands back D3D11 (GPU) frames, and the plain `scale` filter
+    // cannot read that format -- it aborts the whole graph with "Error
+    // configuring filter graph: Function not implemented", so ffmpeg died
+    // instantly and 720p never produced a picture.
+    //
+    // So anything that is not NVENC encoding straight out of GPU memory has to
+    // download to system memory first (bgra), scale there if the preset asks
+    // for it, and convert to the pixel format the chosen encoder accepts. NVENC
+    // with no downscale keeps the original untouched GPU path, which is why
+    // this condition is "not nvenc OR downscale" rather than just "downscale":
+    // a software encoder cannot read D3D11 frames at all.
+    const needsSystemMemory = !encoderReadsGpuFrames(enc) || downscaling;
+
     return [
       "-init_hw_device", "d3d11va",
 
-      // gfxcapture (Windows Graphics Capture) -- the capture method we're keeping.
-      // It handles busy 3D scenes without the freezing ddagrab/gdigrab showed.
-      //
-      // gfxcapture hands back D3D11 (GPU) frames, and the plain `scale` filter
-      // cannot read that format -- it aborts the whole graph with "Error
-      // configuring filter graph: Function not implemented", so ffmpeg died
-      // instantly and 720p never produced a picture. The downscale therefore
-      // downloads to system memory first (bgra), scales there, and converts to
-      // the nv12 NVENC wants. Presets that don't downscale keep the original
-      // untouched GPU path.
       "-filter_complex", `gfxcapture=monitor_idx=0:max_framerate=${preset.fps}:capture_cursor=1` +
-        (preset.w !== ctx.nativeW || preset.h !== ctx.nativeH
-          ? `,hwdownload,format=bgra,scale=${preset.w}:${preset.h},format=nv12`
+        (needsSystemMemory
+          ? `,hwdownload,format=bgra` +
+            (downscaling ? `,scale=${preset.w}:${preset.h}` : "") +
+            `,format=${encoderPixFmt(enc)}`
           : ""),
 
-      "-c:v", "h264_nvenc",
-      "-preset", "p1",           // reverted from p4 back to p1 -- p1 is the most
-                                 // consistent/lowest-latency preset with the least
-                                 // per-frame timing variance; prioritizing "never
-                                 // laggy" over "slightly sharper text" right now
-      "-tune", "ull",            // zero lookahead/buffering
-      "-slices", "1",           // force exactly one slice per frame -- the AnnexBFrameParser
-                                 // assumes this to find frame boundaries; without it, a
-                                 // multi-slice frame (more likely in high-motion scenes) can
-                                 // confuse the browser's decoder and stall video with no error
-      "-rc", "cbr",
-      "-b:v", preset.bitrate,
-      "-maxrate", preset.bitrate,
-      "-bufsize", preset.bufsize, // deliberately smaller than the bitrate -- a bufsize equal to
-                                 // the full bitrate lets up to ~1 second of frames queue up before
-                                 // delivery (exactly what "randomly gets delayed" feels like);
-                                 // a tighter buffer forces the encoder to drop quality briefly
-                                 // during spikes instead of building up a delay
-      "-g", String(preset.fps),  // keyframe once a second. The viewer's latency guard
-                                 // resyncs a falling-behind decoder on the NEXT
-                                 // keyframe, so this gap bounds how long a slow
-                                 // client freezes before it is live again.
-      "-profile:v", "high",
-      "-level:v", "5.1",
-      "-bf", "0",                // no B-frames: keeps decode order == display order, simplifies timestamps
-      "-forced-idr", "1",
+      ...ENCODER_OPTS[enc](preset),
 
       "-f", "h264",
       "pipe:1",
@@ -212,7 +364,7 @@ module.exports = {
   hostWindowScript: "host-window.ps1",
 
   // ---- What this needs installed ------------------------------------------
-  deps: ["Node.js 18+", "FFmpeg built with nvenc + gfxcapture", "An NVIDIA GPU"],
+  deps: ["Node.js 18+", "FFmpeg built with gfxcapture", "A video encoder (NVENC, QSV, AMF or x264)"],
 
   // ---- Diagnostics ---------------------------------------------------------
   osLabel(nativeRelease) {

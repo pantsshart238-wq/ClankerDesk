@@ -9,6 +9,14 @@ const pw = require("./platform-windows");
 // keeps the comparison about the argv rather than about the local hardware.
 process.env.CAPTURE = "d3d11";
 
+// Pin the encoder too, for the same reason. videoArgs() now probes which
+// encoder this PC can actually open, and on a machine whose NVIDIA driver is
+// older than the installed ffmpeg that probe correctly chooses something else.
+// This test is not about that PC -- it is about whether the NVENC argv changed,
+// so it must say "NVENC" regardless of where it runs. Without this, running
+// the test on an old-driver laptop would report a false regression.
+process.env.ENCODER = "h264_nvenc";
+
 const WIDTH = 1920, HEIGHT = 1080;   // stand-ins; only ever compared for equality
 const PRESETS = {
   "1080p60": { w: 1920, h: 1080, fps: 60, bitrate: "10M", bufsize: "5M" },

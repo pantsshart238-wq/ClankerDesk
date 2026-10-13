@@ -434,6 +434,10 @@ let preset = QUALITY_PRESETS[captureQuality];
 // 2s crash-backoff: flips to true right before the kill; consumed by the
 // ffmpeg exit handler below.
 let relaunchFast = false;
+// Consecutive ffmpeg failures, and when the last one happened. Used to stop a
+// restart loop that would otherwise run forever (see the exit handler).
+let ffmpegFastFails = 0;
+let lastFfmpegExit = 0;
 
 // ---------------------------------------------------------------------------
 // 1. FFmpeg capture + NVENC encode -> raw H264 Annex-B elementary stream on stdout
@@ -478,6 +482,30 @@ function startFfmpeg() {
   proc.on("exit", (code, sig) => {
     console.error(`ffmpeg exited (code=${code}, signal=${sig})` + (captureWanted ? "; restarting" : "; capture is idle"));
     if (code !== 0) console.error("[ffmpeg] output before exit:\n" + stderrTail);
+
+    // Stop the endless loop. When capture cannot start at all -- an encoder
+    // this machine cannot open, a filter it rejects, a resolution it refuses
+    // -- ffmpeg exits within a second, every time, and the watchdog restarts
+    // it, forever, filling the window with the same error. The user sees a
+    // stuck screen and no cause. Consecutive fast failures can only mean the
+    // configuration is wrong, so say so and stop hammering.
+    const now = Date.now();
+    ffmpegFastFails = (now - lastFfmpegExit < 8000) ? ffmpegFastFails + 1 : 1;
+    lastFfmpegExit = now;
+    if (ffmpegFastFails >= 4 && captureWanted) {
+      captureWanted = false;
+      console.error(
+        `\n[capture] Stopping: ffmpeg failed ${ffmpegFastFails} times in a row and gave no picture.\n` +
+        "           This is not a network problem and restarting will not help.\n\n" +
+        "           The most common cause is a video encoder this PC cannot use.\n" +
+        "           Run Setup.bat to make sure ffmpeg matches your graphics driver,\n" +
+        "           or set ENCODER=libx264 in config.json to force software encoding.\n\n" +
+        "           The exact ffmpeg error is printed just above this message.\n"
+      );
+      ffmpegFastFails = 0;
+      return;
+    }
+
     // BUGFIX: this used to call setTimeout(startFfmpeg, 2000) directly, which
     // spawned a replacement process but never reassigned currentFfmpeg or
     // rewired its stdout to the parser -- so every restart after the first
@@ -3076,6 +3104,7 @@ if (USE_RELAY) {
   // exit code, and on macOS the permissions are worth saying out loud.
   if (typeof platform.preflight === "function") {
     const check = platform.preflight();
+    if (check.info) console.log("[setup] " + check.info);
     if (check.warns && check.warns.length) {
       for (const w of check.warns) console.error("[setup] " + w);
     }
@@ -3083,7 +3112,12 @@ if (USE_RELAY) {
       console.error("");
       console.error("  ================= SOMETHING IS MISSING =================");
       for (const p of check.problems) console.error("  " + p);
-      console.error("  Run ./Setup.sh in this folder to install what's needed.");
+      // This used to say "./Setup.sh" on every platform, which is offering a
+      // Unix script to someone on Windows, where the file they need is
+      // Setup.bat.
+      console.error(platform.name === "Windows"
+        ? "  Run Setup.bat in this folder to install what's needed."
+        : "  Run ./Setup.sh in this folder to install what's needed.");
       console.error("  =====================================================");
       console.error("");
     }
