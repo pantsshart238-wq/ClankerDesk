@@ -266,6 +266,25 @@ module.exports = {
     return this._encoder;
   },
 
+  // Has the agent given up on the fast capture path for this session?
+  //
+  // This is the escape hatch for a failure that could not be reproduced from the
+  // development machine: on a real laptop the gfxcapture + hwdownload chain set
+  // up cleanly, ffmpeg ran, and produced nothing -- the stream mapping degraded
+  // to "format:default", so the watchdog killed a capture already starved. It
+  // works here, so no amount of local testing would have caught it.
+  //
+  // Rather than choosing statically between "fast" and "reliable", this tries
+  // fast first and falls back for the rest of the session if frames never
+  // arrive. The agent calls forceGdiCapture() after a capture fails twice.
+  isGdiForced() { return !!this._forceGdi; },
+
+  forceGdiCapture() {
+    if (this._forceGdi) return false;
+    this._forceGdi = true;
+    return true;
+  },
+
   // Forget the probed encoder so the next capture re-probes.
   //
   // The startup probe and the real pipeline are close but not identical: the
@@ -309,33 +328,18 @@ module.exports = {
 
     const enc = this.pickEncoder();
 
-    // ---- If the encoder cannot read GPU frames, do not use GPU capture ----
+    // ---- GPU capture is tried first, even for non-NVENC encoders -----------
     //
-    // gfxcapture produces D3D11 frames. To hand those to a non-NVENC encoder the
-    // frame has to be downloaded with hwdownload, and that path is fragile: on a
-    // real user machine the graph set up, ffmpeg ran, and produced NOTHING --
-    // the stream mapping degraded to "format:default" instead of
-    // "gfxcapture:default", so the watchdog killed a capture that had already
-    // been starved. It worked on the machine it was written on, which is exactly
-    // why it survived being shipped.
-    //
-    // But note what that download would buy: nothing. Once a frame is in system
-    // memory, the GPU-capture advantage is already gone -- every frame still
-    // crosses the bus, and the encoder is now doing the work on the CPU anyway.
-    // So when the encoder is not NVENC, capture with gdigrab instead: it is
-    // plain GDI, needs no D3D11 device, no hwdownload, and no filter graph at
-    // all. It is the same path headless machines already use successfully.
-    if (!encoderReadsGpuFrames(enc) && forced !== "d3d11") {
-      if (!this._warnedSoftwareCapture) {
-        this._warnedSoftwareCapture = true;
-        console.error(
-          `\n[capture] Using gdigrab capture because ${enc} cannot encode GPU frames directly.\n` +
-          "           Windows Graphics Capture would have to download every frame to\n" +
-          "           system memory anyway, so there is nothing to gain from it, and the\n" +
-          "           download path has been seen to produce no frames at all.\n" +
-          "           Updating the NVIDIA driver will bring back the fast GPU path.\n"
-        );
-      }
+    // GDI capture works but is far too slow to stream with, so it is a
+    // fallback rather than the default. gfxcapture is the fast path; the only
+    // obstacle is that QSV/AMF/x264 cannot read D3D11 frames, so the frame is
+    // downloaded to system memory with hwdownload first. That download has been
+    // seen to produce nothing at all on a real hybrid-GPU laptop while working
+    // perfectly on the machine it was written on -- so rather than betting on it,
+    // the agent falls back automatically: forceGdiCapture() is called once
+    // capture has failed twice, and we land back here on the slow-but-working
+    // path for the rest of the session.
+    if (this.isGdiForced() && forced !== "d3d11") {
       return this.headlessArgs(preset);
     }
 
@@ -354,7 +358,18 @@ module.exports = {
     }
 
     const downscaling = (preset.w !== ctx.nativeW || preset.h !== ctx.nativeH);
-    const needsSystemMemory = downscaling;
+
+    // Only NVENC can encode straight out of GPU memory, so QSV/AMF/x264 always
+    // need the download -- that is the "not NVENC OR downscale" half. A
+    // downscale needs it too, because the plain `scale` filter cannot read a
+    // D3D11 frame at all: it aborts the whole graph with "Error configuring
+    // filter graph: Function not implemented".
+    //
+    // hwdownload can only emit bgra on this device type -- asking it for nv12
+    // fails with "Invalid output format nv12 for hwframe download" -- so the
+    // chain downloads to bgra, scales there if asked, and converts to the
+    // encoder's format last, once in system memory where every filter works.
+    const needsSystemMemory = !encoderReadsGpuFrames(enc) || downscaling;
 
     return [
       "-init_hw_device", "d3d11va",

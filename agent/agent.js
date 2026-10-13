@@ -522,6 +522,26 @@ function startFfmpeg() {
       console.error("[ffmpeg] gave no frames; re-checking which encoder this PC can actually use...");
     }
 
+    // On the SECOND fast failure, the encoder is probably not the problem --
+    // the capture itself is producing nothing. On a real laptop the fast
+    // Windows Graphics Capture path set up cleanly and delivered zero frames
+    // while working perfectly on the development machine, so it cannot be
+    // trusted without a fallback. Switch to GDI capture, which is slower but
+    // is known to work, and stay there for the rest of the session.
+    //
+    // Done as a response to observed failure rather than a static choice,
+    // because neither answer is right everywhere: GDI is too slow to stream
+    // with, and GPU capture occasionally yields nothing.
+    if (ffmpegFastFails === 2 && typeof platform.forceGdiCapture === "function" &&
+        platform.forceGdiCapture()) {
+      console.error(
+        "[capture] No frames from the fast GPU capture path on this PC.\n" +
+        "           Switching to GDI capture for the rest of this session. It is\n" +
+        "           slower, but it is known to work here.\n"
+      );
+      ffmpegFastFails = 0;      // the fallback deserves a clean run of its own
+    }
+
     if (ffmpegFastFails >= 4 && captureWanted) {
       captureWanted = false;
       console.error(
