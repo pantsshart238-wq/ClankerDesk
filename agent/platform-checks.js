@@ -50,6 +50,15 @@ for (const [name, mod] of [["linux", lin], ["macos", mac]]) {
       // guard can resync. This is the single most important shared setting.
       const g = a.indexOf("-g");
       if (g === -1 || a[g + 1] !== String(preset.fps)) throw new Error("-g is not " + preset.fps);
+
+      // A software/hardware encoder that refuses 4:2:0 dies with
+      // "high profile doesn't support 4:4:4" -> "Conversion failed!", and
+      // x11grab/avfoundation both hand back 4:4:4-ish formats. NVENC converts
+      // internally; every other encoder must be told. This exact omission is
+      // why the first Linux run produced no video at all.
+      if (!hasPair("-pix_fmt", "yuv420p")) {
+        throw new Error("missing '-pix_fmt yuv420p' -- capture is 4:4:4, so the encoder will refuse to start");
+      }
     });
   }
 

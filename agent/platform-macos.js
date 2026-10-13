@@ -83,6 +83,11 @@ module.exports = {
       "-maxrate", preset.bitrate,
       "-bufsize", preset.bufsize,
       "-g", String(preset.fps),      // keyframe once a second, like everywhere else
+      // avfoundation hands back whatever the display gives it (commonly 4:2:2),
+      // and "high" profile is 4:2:0 only -- same class of failure as the Linux
+      // one ("high profile doesn't support 4:4:4" -> "Conversion failed").
+      // Naming the pixel format is what fixes it.
+      "-pix_fmt", "yuv420p",
       "-profile:v", "high",
       "-level:v", "5.1",
       "-bf", "0",                    // no B-frames

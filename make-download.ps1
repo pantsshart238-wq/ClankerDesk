@@ -20,6 +20,24 @@ New-Item -ItemType Directory -Path $stage, (Join-Path $stage "agent"), (Join-Pat
 Copy-Item (Join-Path $root "Setup.bat")            $stage
 Copy-Item (Join-Path $root "Start-Agent.bat")      $stage
 Copy-Item (Join-Path $root "agent\agent.js")       (Join-Path $stage "agent")
+# The platform layer. agent.js requires "./platform" near the top, so leaving
+# these out of the zip produced a download that died instantly with
+# "Cannot find module './platform'" -- while the copy in the repo worked
+# perfectly, so testing the repo never caught it.
+#
+# All the platform files plus BOTH input helpers go into EVERY bundle, even
+# though a machine only ever runs one. platform.js selects the implementation
+# with a conditional require, so the unused files are dead weight (a few KB) --
+# but shipping them all means no bundle can be missing the piece its own
+# dispatcher needs, and unzipping the wrong zip on the wrong OS still works.
+New-Item -ItemType Directory -Path (Join-Path $stage "agent\helpers") -Force | Out-Null
+foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
+                  "platform-linux.js", "platform-macos.js")) {
+  Copy-Item (Join-Path $root "agent\$pf") (Join-Path $stage "agent")
+}
+foreach ($hf in @("input-linux.js", "input-macos.js")) {
+  Copy-Item (Join-Path $root "agent\helpers\$hf") (Join-Path $stage "agent\helpers")
+}
 Copy-Item (Join-Path $root "agent\selfhost-deploy.js") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "agent\input-helper.ps1") (Join-Path $stage "agent")
 Copy-Item (Join-Path $root "agent\audio-helper.ps1") (Join-Path $stage "agent")
@@ -167,12 +185,16 @@ function New-UnixBundle {
   Copy-Item (Join-Path $root "Setup.sh")                $u
   Copy-Item (Join-Path $root "Start-Agent.sh")          $u
   Copy-Item (Join-Path $root "agent\agent.js")          (Join-Path $u "agent")
-  Copy-Item (Join-Path $root "agent\platform.js")       (Join-Path $u "agent")
-  Copy-Item (Join-Path $root "agent\platform-util.js")  (Join-Path $u "agent")
-  Copy-Item (Join-Path $root "agent\platform-linux.js") (Join-Path $u "agent")
-  Copy-Item (Join-Path $root "agent\platform-macos.js") (Join-Path $u "agent")
-  Copy-Item (Join-Path $root "agent\helpers\input-linux.js") (Join-Path $u "agent\helpers")
-  Copy-Item (Join-Path $root "agent\helpers\input-macos.js") (Join-Path $u "agent\helpers")
+  # Every platform file and both input helpers, exactly like the Windows
+  # bundle -- platform.js conditionally requires its implementation, so the
+  # complete set is what keeps each bundle self-contained.
+  foreach ($pf in @("platform.js", "platform-util.js", "platform-windows.js",
+                    "platform-linux.js", "platform-macos.js")) {
+    Copy-Item (Join-Path $root "agent\$pf") (Join-Path $u "agent")
+  }
+  foreach ($hf in @("input-linux.js", "input-macos.js")) {
+    Copy-Item (Join-Path $root "agent\helpers\$hf") (Join-Path $u "agent\helpers")
+  }
   Copy-Item (Join-Path $root "agent\selfhost-deploy.js") (Join-Path $u "agent")
   Copy-Item (Join-Path $root "src\index.js")            (Join-Path $u "src")
   Copy-Item (Join-Path $root "wrangler.jsonc")          $u

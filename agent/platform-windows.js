@@ -9,10 +9,86 @@
 module.exports = {
   name: "Windows",
 
+  // ---- Which capture path ---------------------------------------------------
+  // gfxcapture is built on D3D11, and D3D11 needs a display adapter it can
+  // open. A PC with no monitor (headless / server-style, often driven over
+  // Parsec or similar) reports no physical monitor, falls back to a 640x480
+  // virtual display, and D3D11 then fails outright with
+  //     Device creation failed: -1313558101
+  //     Failed to set value 'd3d11va' for option 'init_hw_device'
+  // ...leaving no video at all. gdigrab goes through plain GDI, does not need
+  // D3D11, and still captures that virtual display. Slower, and limited to
+  // whatever the virtual display is, but it works.
+  //
+  // Probed once at startup rather than on every failure, so a working machine
+  // pays ~50ms and a headless one stops retrying a path that cannot work.
+  d3d11Available() {
+    if (this._d3d11 !== undefined) return this._d3d11;
+    try {
+      require("child_process").execFileSync("ffmpeg", [
+        "-hide_banner", "-loglevel", "error",
+        "-init_hw_device", "d3d11va",
+        "-f", "lavfi", "-i", "color=s=8x8:d=0.1",
+        "-f", "null", "-",
+      ], { timeout: 20000, stdio: ["ignore", "ignore", "ignore"] });
+      this._d3d11 = true;
+    } catch (_) {
+      this._d3d11 = false;
+    }
+    return this._d3d11;
+  },
+
+  // Headless capture. Everything is the same as the D3D11 path except the
+  // capture filter and the downscale: GDI gives us whatever the virtual
+  // display happens to be (often 640x480), and upscaling that to 1080p would
+  // just waste megabits, so the native size is streamed and the viewer's
+  // canvas does the scaling.
+  headlessArgs(preset) {
+    return [
+      "-f", "gdigrab",
+      "-framerate", String(preset.fps),
+      "-draw_mouse", "1",
+      "-i", "desktop",
+
+      "-c:v", "h264_nvenc",
+      "-preset", "p1",
+      "-tune", "ull",
+      "-slices", "1",
+      "-rc", "cbr",
+      "-b:v", preset.bitrate,
+      "-maxrate", preset.bitrate,
+      "-bufsize", preset.bufsize,
+      "-g", String(preset.fps),
+      "-profile:v", "high",
+      "-level:v", "5.1",
+      "-bf", "0",
+      "-forced-idr", "1",
+
+      "-f", "h264",
+      "pipe:1",
+    ];
+  },
+
   // ---- Video ---------------------------------------------------------------
   // `preset` is one of the QUALITY_PRESETS entries; `ctx.nativeW/nativeH` are
   // this PC's real screen size, used to decide whether the preset downscales.
   videoArgs(preset, ctx) {
+    // Escape hatch, in case the probe guesses wrong on an odd machine.
+    const forced = String(process.env.CAPTURE || "").toLowerCase();
+    if (forced === "gdi" || (forced !== "d3d11" && !this.d3d11Available())) {
+      if (!this._warnedHeadless) {
+        this._warnedHeadless = true;
+        console.error(
+          "\n[capture] No display adapter available for Windows Graphics Capture (D3D11 could not start).\n" +
+          "           Usually that means no monitor is connected, so Windows is on a small\n" +
+          "           virtual display. Falling back to GDI capture, which works headless but\n" +
+          "           is slower and limited to that virtual display's size.\n" +
+          "           Plug in a monitor (or an HDMI dummy plug) for full quality.\n"
+        );
+      }
+      return this.headlessArgs(preset);
+    }
+
     return [
       "-init_hw_device", "d3d11va",
 

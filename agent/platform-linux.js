@@ -90,6 +90,13 @@ module.exports = {
       "-g", String(preset.fps),   // keyframe once a second, same as every other
                                   // platform: the viewer's latency guard resyncs
                                   // on the next keyframe
+      // x11grab hands back BGR[0] -- 4:4:4 -- and libx264 will NOT convert on
+      // its own. Asking for profile "high" (4:2:0 only) then fails outright:
+      //     x264 [error]: high profile doesn't support 4:4:4
+      //     Conversion failed!
+      // NVENC converts internally, which is why this never showed on Windows.
+      // Naming the pixel format explicitly is what fixes it.
+      "-pix_fmt", "yuv420p",
       "-profile:v", "high",
       "-level:v", "5.1",
       "-bf", "0",                 // no B-frames

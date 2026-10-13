@@ -457,6 +457,23 @@ export default {
     // Worker's own URL, so visitors only have to pick a device / paste a PIN.
     const resp = await env.ASSETS.fetch(request);
     const ct = resp.headers.get("Content-Type") || "";
+
+    // Download bundles must NEVER be cached.
+    //
+    // The assets binding serves these with "public, max-age=0, must-revalidate",
+    // but Cloudflare's edge was answering CF-Cache-Status: HIT and handing
+    // people the PREVIOUS build's bytes -- a rebuilt-and-redeployed agent was
+    // still downloading as the old, broken one. Strip the caching headers and
+    // force a fresh copy on every request. A few hundred KB, fetched rarely by
+    // one person at a time, is a trivial trade for downloads never being stale.
+    if (url.pathname.startsWith("/download/")) {
+      const headers = new Headers(resp.headers);
+      headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+      headers.delete("ETag");
+      headers.delete("Last-Modified");
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
     if (resp.status === 200 && ct.includes("text/html")) {
       const html = await resp.text();
       // The "host your own relay" card only exists when this Worker was given a

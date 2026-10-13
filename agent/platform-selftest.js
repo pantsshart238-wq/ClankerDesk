@@ -3,6 +3,12 @@
 // the other, this fails -- which is the point.
 const pw = require("./platform-windows");
 
+// Force the D3D11 path. videoArgs() probes whether D3D11 can start and falls
+// back to gdigrab when it cannot -- which is exactly what happens on a
+// headless machine, including wherever this test runs. Pinning CAPTURE=d3d11
+// keeps the comparison about the argv rather than about the local hardware.
+process.env.CAPTURE = "d3d11";
+
 const WIDTH = 1920, HEIGHT = 1080;   // stand-ins; only ever compared for equality
 const PRESETS = {
   "1080p60": { w: 1920, h: 1080, fps: 60, bitrate: "10M", bufsize: "5M" },

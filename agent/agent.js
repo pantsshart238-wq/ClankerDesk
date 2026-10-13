@@ -124,27 +124,29 @@ function relayApiBase() {
 // readline (username) with a hand-rolled raw-mode reader (password) left stdin
 // in a state where the password prompt simply ignored every keystroke, so
 // people could type a username but not a password.
-// With hideInput, the question is printed but everything typed after it is
-// swallowed -- the password never appears on screen, in logs, or anywhere else.
+//
+// Hiding the password: give readline a muted output stream instead of
+// monkey-patching its private _writeToOutput. That private field is an internal
+// detail with no cross-platform guarantee -- it worked on Windows and silently
+// swallowed every keystroke on Linux, so the password prompt looked frozen.
+// A muted Writable is the documented way to do this and behaves the same
+// everywhere.
 function ask(question, hideInput) {
   return new Promise((resolve) => {
+    const { Writable } = require("stream");
+    const muted = new Writable({
+      write(chunk, enc, cb) { cb(); }, // swallow: the password never hits the screen
+    });
+
     const rl = require("readline").createInterface({
       input: process.stdin,
-      output: process.stdout,
+      output: hideInput ? muted : process.stdout,
       terminal: true,
     });
 
-    if (hideInput) {
-      const realWrite = rl._writeToOutput;
-      let shownQuestion = false;
-      rl._writeToOutput = function (chunk) {
-        if (!shownQuestion) {
-          shownQuestion = true;
-          if (realWrite) realWrite.call(this, chunk); // the question itself
-        }
-        // everything after it is the user's typing: never echo it
-      };
-    }
+    // The question has to be printed before the reader starts swallowing, or
+    // it would be eaten too and the user would see no prompt at all.
+    if (hideInput) process.stdout.write(question);
 
     let answered = false;
     const finish = (value) => {
@@ -158,7 +160,7 @@ function ask(question, hideInput) {
     rl.on("SIGINT", () => finish(""));
     rl.on("close", () => finish(""));
 
-    rl.question(question, (answer) => {
+    rl.question(hideInput ? "" : question, (answer) => {
       if (hideInput) process.stdout.write("\n");
       finish(answer.trim());
     });
@@ -2351,7 +2353,15 @@ function startViewerServer() {
     const url = `http://localhost:${p}`;
     console.log("");
     console.log(`[viewer] Viewer page ready:  ${url}`);
-    console.log(`[ui] Host control window opens automatically (or run: powershell -ExecutionPolicy Bypass -File agent\\host-window.ps1 -Port ${p})`);
+    // The control window is a PowerShell/WinForms thing. Telling a Linux or
+    // macOS user to "run powershell -File host-window.ps1" is nonsense --
+    // there is no PowerShell there, and it read like a missing dependency.
+    // On those systems this terminal IS the control surface.
+    if (platform.supportsHostWindow) {
+      console.log(`[ui] Host control window opens automatically (or run: powershell -ExecutionPolicy Bypass -File agent\\host-window.ps1 -Port ${p})`);
+    } else {
+      console.log("[ui] This terminal is the control panel -- your PIN and status are printed above.");
+    }
     console.log("[viewer] (works on THIS PC only; on this PC it opens in view-only mode -- add ?control=1 to the address to enable input)");
     if (VIEWER_HOST === "0.0.0.0" || VIEWER_HOST === "::") {
       for (const ip of lanAddresses()) console.log(`[viewer] Also reachable on your network: http://${ip}:${p}`);
