@@ -198,29 +198,19 @@ function hostPanelHtml(s) {
     <p class="hint">This PIN changes if you delete <code>device.json</code>, and the agent prints a fresh one on every start until then.</p>
   </div>
 
-${s.linked ? `
   <div class="card">
     <h2>Your account</h2>
-    <p class="sub" style="margin:0 0 4px">This PC is linked to your account, so it shows up in <b>Devices</b> when you log in on the website.</p>
-    <div class="row" style="margin-top:14px">
-      <span class="pill on"><span class="dot"></span>Linked</span>
+    ${s.linked
+      ? `<p class="sub" style="margin:0 0 4px">This PC is already linked, so it shows up in <b>Devices</b> when you log in on the website. To use a different account, sign in below &mdash; it replaces the current one straight away.</p>`
+      : `<p class="sub" style="margin:0 0 14px">Make a free account, or log in if you already have one. That is the whole setup &mdash; no website, no copying a key into a text file. Your password is sent straight to ClankerDesk and is never written to this PC.</p>`}
+    <div class="row" style="margin:14px 0">
+      <span class="pill ${s.linked ? "on" : ""}"><span class="dot"></span>${s.linked ? "Linked" : "Not linked yet"}</span>
       <span class="spacer"></span>
-      <a class="btn ghost" href="${esc(s.relayOrigin || "")}" target="_blank" rel="noopener">Open the website</a>
-      <button class="btn ghost" type="button" onclick="switchAccount()">Use a different account</button>
+      ${s.linked ? `<a class="btn ghost" href="${esc(s.relayOrigin || "")}" target="_blank" rel="noopener">Open the website</a>` : ""}
     </div>
-    <p class="hint">Only your login can see this PC. Nobody else's account will.</p>
-  </div>
-` : `
-  <div class="card" id="linkcard">
-    <h2>Set this PC up</h2>
-    <p class="sub" style="margin:0 0 14px">
-      Make a free account, or log in if you already have one. That is the whole setup &mdash;
-      no website, no copying a key into a text file. Your password is sent straight to
-      ClankerDesk and is never written to this PC.
-    </p>
     <form id="linkform" onsubmit="return doLink(event)">
       <label class="field">
-        <span>Username</span>
+        <span>${s.linked ? "Sign in as someone else" : "Username"}</span>
         <input id="linkuser" type="text" autocomplete="username" spellcheck="false"
                placeholder="letters, numbers, _ or -" required>
       </label>
@@ -231,13 +221,11 @@ ${s.linked ? `
       </label>
       <div id="linkmsg" class="msg" role="alert"></div>
       <div class="row">
-        <span class="spacer"></span>
-        <button class="btn" type="submit" id="linksubmit">Link this PC</button>
+        <span class="sub" style="flex:1 1 auto;margin:0">Already have an account? Use the same details &mdash; ClankerDesk will log you in instead of making a second one.</span>
+        <button class="btn" type="submit" id="linksubmit">${s.linked ? "Switch account" : "Link this PC"}</button>
       </div>
     </form>
-    <p class="hint">Already have an account? Use the same username and password &mdash; ClankerDesk will log you in instead of making a second one.</p>
   </div>
-`}
 
   <div class="card">
     <h2>Connection</h2>
@@ -311,10 +299,11 @@ function doLink(ev) {
   });
   return false;
 }
-function switchAccount() {
-  if (!confirm("Link this PC to a different account? The new account will see it; the old one will not.")) return;
-  fetch("/host-unlink", { method: "POST" }).then(function () { location.reload(); });
-}
+// There is deliberately no "switch account" button any more. The form above is
+// always visible, so signing in as someone else just means typing in it --
+// submitting replaces the stored account immediately. It used to hide the form
+// behind a confirm() dialog that cleared the key and reloaded, which left
+// anyone whose PC was already linked staring at no fields at all.
 function toast(msg) {
   var t = document.getElementById("toast");
   t.textContent = msg; t.classList.add("show");

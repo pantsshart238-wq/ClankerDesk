@@ -266,10 +266,28 @@ async function linkAccount(user, pass) {
   };
 
   let res = await post("/api/signup");
-  // "already taken" just means this person has an account here: log them in
-  // instead of making them dig out which key they pasted last time.
-  if (res.status === 409 || /already taken/i.test((res.json && res.json.error) || "")) {
-    res = await post("/api/login");
+  let signUpBlocked = false;
+  // If signing up did not work, try logging in before giving up. The old code
+  // only fell back on a 409 ("username taken"), so anyone whose account
+  // already existed could not log in at all while their network was over the
+  // 5-signups-per-hour limit -- signup returned "too many signups", which is
+  // not a 409, so it reported that instead of just trying the password they
+  // had given.
+  if (!res.json || !res.json.ok) {
+    signUpBlocked = /too many signups/i.test((res.json && res.json.error) || "");
+    const attempt = await post("/api/login");
+    if (attempt.json && attempt.json.ok && attempt.json.token) res = attempt;
+    else if (signUpBlocked) {
+      // Both failed, and the reason signup failed was the hourly cap. Saying
+      // only "too many signups" to someone who merely mistyped their password
+      // sends them off to wait an hour for no reason, so name both causes.
+      return {
+        ok: false,
+        error: "Could not sign in: wrong username or password. (This network also cannot "
+             + "create new accounts right now -- 5 per hour -- so if this is your first "
+             + "time here, sign up on the website instead.)",
+      };
+    }
   }
 
   if (!res.json || !res.json.ok || !res.json.token) {
