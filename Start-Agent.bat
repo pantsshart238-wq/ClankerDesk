@@ -33,6 +33,30 @@ if not exist "agent\node_modules\ws" (
     )
 )
 
+rem ---------------------------------------------------------------
+rem  ffmpeg is what captures and encodes the picture. Without it the
+rem  agent starts happily and then streams nothing, reporting errors
+rem  that never name ffmpeg -- so check here, where the fix can be
+rem  printed in one place.
+rem ---------------------------------------------------------------
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo  ==========================================================
+    echo   ffmpeg is not installed - this PC's screen cannot be shown.
+    echo  ==========================================================
+    echo.
+    echo  Install it with:
+    echo      winget install --id Gyan.FFmpeg
+    echo.
+    echo  Or run Setup.bat in this folder, which does it for you.
+    echo.
+    echo  Then start ClankerDesk again.
+    echo.
+    pause
+    exit /b 1
+)
+
 node agent\agent.js
 if errorlevel 1 (
     echo.

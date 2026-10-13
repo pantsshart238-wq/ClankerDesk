@@ -20,7 +20,7 @@ echo.
 
 where node >nul 2>nul
 if errorlevel 1 (
-    echo  [1/2] Node.js not found on this PC - installing it now...
+    echo  [1/3] Node.js not found on this PC - installing it now...
     echo        (Windows may ask for permission -- click Yes)
     echo.
     winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
@@ -39,10 +39,49 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem ------------------------------------------------------------------
+rem  ffmpeg -- the thing that captures and encodes the picture.
+rem  This used to be assumed present, which meant a machine without it
+rem  installed "successfully" and then streamed nothing, with errors that
+rem  never mentioned ffmpeg at all. Install it here like everything else.
+rem ------------------------------------------------------------------
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+    echo  [2/3] Installing ffmpeg ^(the screen capture + encoder^)...
+    echo.
+    winget install --id Gyan.FFmpeg --accept-source-agreements --accept-package-agreements
+    rem winget puts it somewhere already on PATH, but THIS window may not
+    rem know about it yet, so add the usual locations by hand.
+    set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;%LOCALAPPDATA%\Microsoft\WinGet\Packages;%PATH%"
+)
+
+where ffmpeg >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo  ==========================================================
+    echo   ffmpeg could not be installed automatically.
+    echo  ==========================================================
+    echo.
+    echo  ClankerDesk cannot show this PC's screen without it.
+    echo.
+    echo  Install it with:
+    echo      winget install --id Gyan.FFmpeg
+    echo.
+    echo  Or download a build from https://ffmpeg.org/download.html,
+    echo  unzip it, and add the folder containing ffmpeg.exe to your
+    echo  PATH ^(System Properties - Environment Variables - Path^).
+    echo.
+    echo  Then run Setup.bat again.
+    echo.
+    pause
+    exit /b 1
+)
+echo  ffmpeg is installed.
+
 if exist "agent\node_modules\ws" (
-    echo  [2/2] Everything ClankerDesk needs is already bundled in this download.
+    echo  [3/3] Everything ClankerDesk needs is already bundled in this download.
 ) else (
-    echo  [2/2] Installing ClankerDesk pieces (one-time, needs internet)...
+    echo  [3/3] Installing ClankerDesk pieces (one-time, needs internet)...
     echo.
     call npm.cmd install --no-audit --no-fund
     if errorlevel 1 (

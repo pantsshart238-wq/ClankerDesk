@@ -6,8 +6,50 @@
 // The self-test compares its output against the recorded original, so an
 // accidental edit fails loudly rather than shipping a subtle regression.
 
+const { hasCommand } = require("./platform-util");
+
 module.exports = {
   name: "Windows",
+
+  // ---- Startup checks -------------------------------------------------------
+  // Setup.bat used to install Node.js and nothing else, and the agent had no
+  // checks at all on Windows. A machine without ffmpeg therefore produced a
+  // wall of unrelated-looking errors instead of one sentence: "spawn ffmpeg
+  // ENOENT", a watchdog claiming capture had stalled, and ffplay missing too.
+  // None of those name the actual problem. Say it plainly, up front.
+  preflight() {
+    const problems = [];
+    const warns = [];
+
+    if (!hasCommand("ffmpeg")) {
+      problems.push(
+        "ffmpeg is not installed, so there will be no picture.\n" +
+        "            Install it, then restart ClankerDesk:\n" +
+        "              winget install --id Gyan.FFmpeg --accept-source-agreements\n" +
+        "            (or download a build from https://ffmpeg.org/download.html and add\n" +
+        "             its bin folder to your PATH)"
+      );
+    } else if (!hasCommand("ffplay")) {
+      // ffplay ships inside the same ffmpeg package. Without it there is still
+      // video, but a viewer's microphone will never play on this PC.
+      warns.push(
+        "ffplay is missing (it normally ships with ffmpeg), so viewers'\n" +
+        "            microphones will not play on this PC. Reinstall ffmpeg."
+      );
+    }
+
+    if (!this.d3d11Available()) {
+      warns.push(
+        "Windows Graphics Capture cannot start (D3D11 unavailable), so it will\n" +
+        "            fall back to GDI capture. That works without a monitor, but it is\n" +
+        "            slower and limited to whatever the virtual display's size is\n" +
+        "            (often 640x480). Plugging in a monitor -- or an HDMI dummy plug --\n" +
+        "            gives the fast path back."
+      );
+    }
+
+    return { problems, warns };
+  },
 
   // ---- Which capture path ---------------------------------------------------
   // gfxcapture is built on D3D11, and D3D11 needs a display adapter it can
