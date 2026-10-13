@@ -444,6 +444,10 @@ let relaunchFast = false;
 // restart loop that would otherwise run forever (see the exit handler).
 let ffmpegFastFails = 0;
 let lastFfmpegExit = 0;
+// Did the ffmpeg process that just exited ever produce a single frame? This,
+// not elapsed time, is what the failure ladder is built on: a capture that
+// starts and yields nothing is broken, however long it took to be killed.
+let videoProducedFrames = false;
 
 // ---------------------------------------------------------------------------
 // 1. FFmpeg capture + NVENC encode -> raw H264 Annex-B elementary stream on stdout
@@ -509,11 +513,21 @@ function startFfmpeg() {
     // stuck screen and no cause. Consecutive fast failures can only mean the
     // configuration is wrong, so say so and stop hammering.
     const now = Date.now();
-    ffmpegFastFails = (now - lastFfmpegExit < 8000) ? ffmpegFastFails + 1 : 1;
+    const noFrames = !videoProducedFrames;
+    videoProducedFrames = false;
     lastFfmpegExit = now;
+    // Count LAUNCHES that produced nothing, not elapsed time. A failed relaunch
+    // takes the 10s restart delay plus the watchdog's 4s, so consecutive
+    // failures land ~14s apart; a time window short enough to catch them would
+    // also catch ordinary pauses, and one long enough would conflate an
+    // unrelated later failure with the original one. Frames arriving resets the
+    // count at the source (see the stdout handler), so this only ever measures
+    // a run of consecutive zero-frame captures.
+    ffmpegFastFails = noFrames ? ffmpegFastFails + 1 : 0;
 
-    // On the FIRST fast failure, distrust the encoder probe and make it run
-    // again. The probe encodes from a synthetic source while production
+    if (noFrames) {
+    // On the FIRST zero-frame launch, distrust the encoder probe and make it
+    // run again. The probe encodes from a synthetic source while production
     // encodes from the real desktop, so an encoder can pass the probe and
     // still fail here. Re-probing costs ~200ms and may pick a different one,
     // which is a far better outcome than giving up on the second failure.
@@ -540,6 +554,7 @@ function startFfmpeg() {
         "           slower, but it is known to work here.\n"
       );
       ffmpegFastFails = 0;      // the fallback deserves a clean run of its own
+    }
     }
 
     if (ffmpegFastFails >= 4 && captureWanted) {
@@ -572,7 +587,7 @@ function startFfmpeg() {
 }
 
 // Switch capture to another QUALITY_PRESETS entry at runtime -- the viewer's
-// Ã°Å¸Å½Å¾Ã¯Â¸Â quality button sends {type:"set_quality"}. If capture is running, the
+// ÃƒÂ°Ã…Â¸Ã…Â½Ã…Â¾ÃƒÂ¯Ã‚Â¸Ã‚Â quality button sends {type:"set_quality"}. If capture is running, the
 // ffmpeg exit handler above relaunches it ~300ms later through
 // launchFfmpeg() with the new preset (the same path restart_capture uses, so
 // no restart races). When capture is idle (watchdog between viewers) the
@@ -2159,6 +2174,14 @@ function launchFfmpeg() {
   proc.stdout.on("data", (chunk) => {
     if (proc !== currentFfmpeg) return; // stale data from an old process
     lastFrameAt = Date.now();
+    // Frames ARE flowing, so whatever went wrong last time is over. Resetting
+    // here rather than on a timer is what makes the failure counter mean
+    // something: it counted time-based failures, and because a failed relaunch
+    // takes 10s plus the watchdog's 4s, consecutive failures were 14s apart and
+    // fell outside the 8s window every time. The counter therefore never rose
+    // above 1, and the GDI fallback never fired on a real machine.
+    videoProducedFrames = true;
+    ffmpegFastFails = 0;
     parser.push(chunk);
   });
 }
@@ -2898,7 +2921,7 @@ function acceptDirectClient(client) {
         // An actual auth attempt with the wrong token: reject right away.
         failed = true;
         const got = typeof msg.token === "string" && msg.token.length
-          ? `"${msg.token.slice(0, 4)}Ã¢â‚¬Â¦${msg.token.slice(-4)}" (length ${msg.token.length})`
+          ? `"${msg.token.slice(0, 4)}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦${msg.token.slice(-4)}" (length ${msg.token.length})`
           : "none";
         console.log(`[direct] rejected auth (page sent ${got}); raw: ${text.slice(0, 120)}`);
         try { client.send(JSON.stringify({ type: "auth_failed" })); } catch (_) {}
